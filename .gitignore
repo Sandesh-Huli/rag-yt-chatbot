@@ -26,3 +26,4 @@ env/
 *.log
 
 # FAISS index files
+project-structure.txt
