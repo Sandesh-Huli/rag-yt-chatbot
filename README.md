@@ -1,59 +1,130 @@
-# YouTube Chatbot with LangChain & Gemini
+# YouTube Chatbot with Agentic RAG
 
-This project is a conversational AI chatbot that answers questions about YouTube videos using their transcripts. It leverages [LangChain](https://github.com/langchain-ai/langchain), Google Gemini models, and FAISS vector search.
+This project is an **agentic Retrieval-Augmented Generation (RAG) chatbot** for YouTube videos. It fetches video transcripts, semantically chunks and embeds them, stores them in a vector database, and uses a Large Language Model (LLM) to answer questions, summarize, or translate content—letting the LLM decide which action to take.
 
-## Features
+---
 
-- Fetches YouTube video transcripts automatically
-- Splits transcripts into manageable chunks
-- Embeds text using Google Gemini embeddings
-- Stores and searches chunks using FAISS vector store
-- Answers user questions using a Gemini LLM, grounded in the video transcript
+## Frameworks and Libraries Used
+
+- **[LangChain](https://github.com/langchain-ai/langchain):** For LLM integration, text splitting, and tool abstraction.
+- **[LangGraph](https://github.com/langchain-ai/langgraph):** For orchestrating the agentic workflow as a graph of nodes.
+- **[youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api):** To fetch YouTube video transcripts programmatically.
+- **[langchain-google-genai](https://github.com/langchain-ai/langchain-google-genai):** For Gemini (Google Generative AI) LLM and embedding integration.
+- **[faiss](https://github.com/facebookresearch/faiss):** For efficient vector similarity search.
+- **[python-dotenv](https://github.com/theskumar/python-dotenv):** For loading environment variables from a `.env` file.
+- **[nltk](https://www.nltk.org/):** For sentence tokenization (if used in chunking).
+- **Standard Python libraries:** `os`, `dataclasses`, `typing`, etc.
+
+---
+
+## How the Chatbot Works (Summary)
+
+1. **Transcript Fetching:**  
+   The chatbot fetches the transcript for a given YouTube video using `youtube-transcript-api`.
+
+2. **Semantic Chunking:**  
+   The transcript is split into semantically meaningful chunks using LangChain's `SemanticChunker` or similar text splitter.
+
+3. **Embedding & Storage:**  
+   Each chunk is embedded using Gemini (or another supported embedding model) and stored in a FAISS vector database for fast similarity search.
+
+4. **Retrieval:**  
+   When a user asks a question, requests a summary, or asks for translation, the most relevant transcript chunks are retrieved based on semantic similarity.
+
+5. **Agentic Orchestration:**  
+   The user's query and retrieved context are passed to an LLM (Gemini).  
+   The LLM acts as an agent, deciding whether to answer, summarize, or translate—by selecting the appropriate tool—based on the user's intent.
+
+6. **Response Generation:**  
+   The LLM generates a response (answer, summary, or translation) using both the transcript context and its own knowledge, and returns it to the user.
+
+---
+
+## Project Structure
+
+```
+chatbot/
+│
+├── models/
+│   └── llm.py                # LLM utility for generating responses using Gemini (Google Generative AI)
+│
+├── services/
+│   ├── agent_service.py      # Chatbot class: nodes for fetch, chunk, retrieve, Q&A, summarize, translate
+│   ├── rag_service.py        # RAG service: chunking, embedding, storing, retrieving transcript data
+│   ├── transcript_service.py # Fetches YouTube video transcripts
+│   └── yt_agent_graph.py     # Orchestrates the agentic workflow using LangGraph
+│
+└── ...
+```
+
+---
 
 ## Setup
 
 1. **Clone the repository**
 
 2. **Install dependencies**
-
    ```sh
    pip install -r requirements.txt
    ```
 
-3. **Set up your API key**
+3. **Set up your environment variables**
 
-   Create a `.env` file in the project root:
+   - Create a `.env` file in the project root:
+     ```
+     GOOGLE_API_KEY=your-gemini-api-key-here
+     ```
+   - (You can use a Gemini API key or set up another supported embedding/LLM provider.)
 
-   ```
-   GOOGLE_API_KEY="your-google-api-key"
-   ```
-
-4. **Run the notebook**
-
-   Open `Main.ipynb` in VS Code or Jupyter and run the cells.
+---
 
 ## Usage
 
-- The notebook fetches the transcript for a given YouTube video ID.
-- It processes the transcript, creates embeddings, and builds a vector store.
-- You can ask questions about the video, and the chatbot will answer using only the transcript context.
+### Run the Agentic Chatbot
 
-## File Structure
+From the project root, run:
 
-- [`Main.ipynb`](Main.ipynb): Main notebook with all code and logic
-- `.env`: Stores your Google API key (not to be shared)
-- `README.md`: Project documentation
+```sh
+python -m chatbot.services.yt_agent_graph
+```
 
-## Requirements
+You will be prompted for:
+- YouTube video ID
+- Your query (question, summary request, or translation request)
+- (If translating) Target language code (e.g., `hi` for Hindi)
 
-- Python 3.8+
-- Google Gemini API access
-- See `requirements.txt` for Python dependencies
-
-## Credits
-
-- [LangChain](https://github.com/langchain-ai/langchain)
-- [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api)
-- Google Gemini
+The agent will:
+1. Fetch the transcript
+2. Chunk, embed, and store it
+3. Retrieve relevant chunks
+4. Let Gemini decide (Q&A, summarize, translate) and respond
 
 ---
+
+## Example
+
+```
+Enter YouTube video_id: jZyAB2KFDls
+Enter your query: Summarize the main points of this video.
+Mode (qa/summarize/translate): summarize
+
+Agent Response:
+This video discusses...
+```
+
+---
+
+## Extending
+
+- Add new tools (e.g., sentiment analysis) by defining new node functions and registering them as tools.
+- Swap out the embedding or LLM provider by editing `rag_service.py` and `llm.py`.
+- Build new workflows by composing nodes in `yt_agent_graph.py`.
+
+---
+
+## Acknowledgements
+
+- [LangChain](https://github.com/langchain-ai/langchain)
+- [LangGraph](https://github.com/langchain-ai/langgraph)
+- [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api)
+- [Google Generative AI (Gemini)](https://ai.google.dev/)
