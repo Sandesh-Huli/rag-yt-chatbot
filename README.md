@@ -127,7 +127,6 @@ Bot: This video discusses...
 ## Extending
 
 - Add new tools (e.g., sentiment analysis) by defining new node functions and registering them as tools in `yt_agent_graph.py`.
-- Swap out the embedding or LLM provider by editing `rag_service.py` and `llm.py`.
 - Build new workflows by composing nodes in `yt_agent_graph.py`.
 
 ---
