@@ -3,13 +3,21 @@ from chatbot.models.llm import get_llm_response
 from chatbot.services.rag_service import RAG
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
-import uuid
-
+import uuid, json, re
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START
 
 # from chatbot.services.agent_service import Chatbot
 from chatbot.services.db_service import DBService  # integrate DB
+from chatbot.services.web_search import web_search
+from langchain_core.tools import Tool
 from dotenv import load_dotenv
+
+web_search_tool = Tool(
+    name="web_search",
+    func=web_search,
+    description="useful for answering questions that require up-to-date information from the web."
+)
 
 # ---------------- Agent State ----------------
 @dataclass
@@ -32,7 +40,14 @@ load_dotenv()
 # chatbot = Chatbot()
 rag = RAG()
 db = DBService()
-
+llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
+        temperature=0,
+        max_tokens = None,
+        timeout = None,
+        max_retries = 2,
+        max_output_tokens=512
+    )
 
 # ---------------- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
@@ -48,41 +63,59 @@ def add_transcript_node(state: AgentState) -> AgentState:
 
 def orchestrator_node(state: AgentState) -> AgentState:
     system_prompt = """
-    Use LLM to decide which mode to pick (qa, summarize, translate),
-    or directly answer from knowledge if context isn't needed.
-    
-    You are a YouTube RAG chatbot with multiple abilities:
-    - Answer user questions from transcript (qa).
-    - Summarize the video (summarize).
-    - Translate transcript into another language (translate).
-    - Or answer directly if transcript is not needed.
+    You are not a chatbot. You are an orchestrator.
+    Your ONLY job is to decide which mode to use for the YouTube assistant.
+    You must always respond with EXACTLY one JSON object and nothing else.
 
-    Decide the best action:
-    1. "qa" if the user asks a specific question about the video.
-    2. "summarize" if the user asks for a summary.
-    3. "translate" if the user asks to translate into another language.
-    
-    Respond in JSON with a single key "mode".
-    Example: {"mode": "qa"}
+    The valid modes are:
+    - "qa" → if the user asks a specific question about the video transcript.
+    - "summarize" → if the user asks for a summary.
+    - "translate" → if the user asks to translate into another language.
+
+    Examples:
+    User: "What did the speaker say at the end?"
+    Output: {"mode": "qa"}
+
+    User: "Give me a summary"
+    Output: {"mode": "summarize"}
+
+    User: "Translate to Hindi"
+    Output: {"mode": "translate"}
 
     """
-    
-    messages = (state.history or []) + [
+
+    messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": state.query}
     ]
-    
-    msg = get_llm_response(messages)
+
+    msg = llm.invoke(messages)
+    raw = msg.content.strip()
+
     try:
-        import json
-        state.mode = json.loads(msg.content)["mode"]
+        # Extract JSON even if surrounded by text
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if match:
+            parsed = json.loads(match.group(0))
+            mode = parsed.get("mode")
+            print(f"\n{mode} was chosen by llm\n")
+            if mode in ["qa", "summarize", "translate"]:
+                state.mode = mode
+            else:
+                state.mode = "qa"  # fallback if invalid mode
+                print("\ndefault qa\n")
+        else:
+            state.mode = "qa"
+            print("\ndefault qa\n")
     except Exception:
         state.mode = "qa"
-    finally:
-        print(f"\n{state.mode} was called by the orchestrator\n")
+        print("\ndefault qa\n")
+
     return state
 
+
 def qa_node(state: AgentState) -> AgentState:
+    print("\nqa node was called by the orchestrator\n")
     transcript_text=""
     if state.transcript_segments:
         transcript_text = "\n".join(state.transcript_segments)
@@ -90,14 +123,33 @@ def qa_node(state: AgentState) -> AgentState:
     history_text = ""
     if state.history:
         history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
-    
-    # Build the prompt for the agent
-    prompt = (
-        "You are a helpful assistant. Use the following transcript and previous chat history to answer the user's question.\n\n"
+        
+    tool_prompt = (
+        "You are a helpful assistant. If the answer is not in the transcript or chat history, "
+        "respond ONLY with the word 'search' (no punctuation). Otherwise, respond with the word 'not needed'.\n\n"
         f"Transcript:\n{transcript_text}\n\n"
         f"Chat History:\n{history_text}\n\n"
         f"User Question: {state.query}"
-    )
+    ) 
+    tool_decision = get_llm_response(tool_prompt)
+    tool_decision_text = tool_decision.content.strip().lower() if hasattr(tool_decision, "content") else str(tool_decision).strip().lower()
+    print(tool_decision_text)
+    if tool_decision_text == "search":
+        web_results = web_search_tool.run(state.query)
+        prompt = (
+            "You are a helpful assistant. Use the following web search results and previous chat history to answer the user's question.\n\n"
+            f"Web Search Results:\n{web_results}\n\n"
+            f"Chat History:\n{history_text}\n\n"
+            f"User Question: {state.query}"
+        )
+    else:
+    # Build the prompt for the agent
+        prompt = (
+            "You are a helpful assistant. Use the following transcript and previous chat history to answer the user's question.\n\n"
+            f"Transcript:\n{transcript_text}\n\n"
+            f"Chat History:\n{history_text}\n\n"
+            f"User Question: {state.query}"
+        )
     state.result = get_llm_response(prompt)
     # Save query + answer into RAG memory
     query_text = state.query.content if hasattr(state.query, "content") else str(state.query)
@@ -109,6 +161,7 @@ def qa_node(state: AgentState) -> AgentState:
     return state
 
 def summarize_node(state: AgentState) -> AgentState:
+    print("\nsummarize node was called by the orchestrator\n")
     transcript_text = ""
     if state.transcript_segments:
         transcript_text = "\n".join(state.transcript_segments)
@@ -133,6 +186,7 @@ def summarize_node(state: AgentState) -> AgentState:
     return state
 
 def translate_node(state: AgentState) -> AgentState:
+    print("\ntranslate node was called by the orchestrator\n")
     transcript_text = ""
     if state.transcript_segments:
         transcript_text = "\n".join(state.transcript_segments)
