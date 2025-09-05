@@ -1,12 +1,21 @@
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from chatbot.services.db_service import DBService
+
+db = DBService()
 
 def fetch_youtube_transcript(video_id: str, lang: str = "en") -> list[str]:
+    
+    
     """
     Fetches the transcript for a given YouTube video ID.
-    Tries the requested language, then auto-generated, then any available transcript.
+    Checks the database first; if not found, fetches from YouTube and stores in DB.
     Returns the transcript as a list of strings (one per segment).
     Raises an exception if transcript is not available.
     """
+    transcript = db.get_transcript(video_id=video_id)
+    if transcript:
+        print('transcript modla fetch maadidde')
+        return transcript
     try:
         api = YouTubeTranscriptApi()
         transcripts = api.list(video_id)
@@ -24,7 +33,10 @@ def fetch_youtube_transcript(video_id: str, lang: str = "en") -> list[str]:
                     raise NoTranscriptFound()
                 transcript_obj = available_transcripts[0]
         transcript_list = transcript_obj.fetch()
-        return [chunk.text for chunk in transcript_list]
+        segments = [chunk["text"] if isinstance(chunk, dict) else chunk.text for chunk in transcript_list]
+        db.save_transcript(video_id, segments)
+        print('Transcript fetched from YouTube and saved to database.')
+        return segments
     except TranscriptsDisabled:
         raise Exception("Transcripts are disabled for this video.")
     except NoTranscriptFound:
