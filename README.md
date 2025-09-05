@@ -1,6 +1,7 @@
 # YouTube Chatbot with Agentic RAG
 
-This project is an **agentic Retrieval-Augmented Generation (RAG) chatbot** for YouTube videos. It fetches video transcripts, semantically chunks and embeds them, stores them in a vector database, and uses a Large Language Model (LLM) to answer questions, summarize, or translate content—letting the LLM decide which action to take.
+This project is an **agentic Retrieval-Augmented Generation (RAG) chatbot** for YouTube videos. It fetches video transcripts, semantically chunks and embeds them, stores them in a vector database, and uses a Large Language Model (LLM) to answer questions, summarize, or translate content—letting the LLM decide which action to take.  
+**Now, chat history is also used for context and semantic retrieval, and all chatbot logic is handled in a single agent graph file.**
 
 ---
 
@@ -31,12 +32,15 @@ This project is an **agentic Retrieval-Augmented Generation (RAG) chatbot** for 
 4. **Retrieval:**  
    When a user asks a question, requests a summary, or asks for translation, the most relevant transcript chunks are retrieved based on semantic similarity.
 
-5. **Agentic Orchestration:**  
-   The user's query and retrieved context are passed to an LLM (Gemini).  
+5. **Chat History Context:**  
+   The chatbot also retrieves and semantically searches previous chat history (Q&A) for relevant context, and includes this in the LLM prompt.
+
+6. **Agentic Orchestration:**  
+   The user's query, retrieved transcript context, and relevant chat history are passed to an LLM (Gemini).  
    The LLM acts as an agent, deciding whether to answer, summarize, or translate—by selecting the appropriate tool—based on the user's intent.
 
-6. **Response Generation:**  
-   The LLM generates a response (answer, summary, or translation) using both the transcript context and its own knowledge, and returns it to the user.
+7. **Response Generation:**  
+   The LLM generates a response (answer, summary, or translation) using both the transcript context, chat history, and its own knowledge, and returns it to the user.
 
 ---
 
@@ -49,13 +53,17 @@ chatbot/
 │   └── llm.py                # LLM utility for generating responses using Gemini (Google Generative AI)
 │
 ├── services/
-│   ├── agent_service.py      # Chatbot class: nodes for fetch, chunk, retrieve, Q&A, summarize, translate
-│   ├── rag_service.py        # RAG service: chunking, embedding, storing, retrieving transcript data
+│   ├── rag_service.py        # RAG service: chunking, embedding, storing, retrieving transcript & chat history
 │   ├── transcript_service.py # Fetches YouTube video transcripts
-│   └── yt_agent_graph.py     # Orchestrates the agentic workflow using LangGraph
+│   ├── db_service.py         # Handles chat history storage and retrieval
+│   └── yt_agent_graph.py     # All chatbot logic and agentic workflow using LangGraph (main entry point)
 │
 └── ...
 ```
+
+**Note:**  
+- `agent_service.py` has been removed. All chatbot logic is now in `yt_agent_graph.py`.
+- The graph no longer uses a `direct_node`; all nodes have access to chat history for context.
 
 ---
 
@@ -89,6 +97,8 @@ python -m chatbot.services.yt_agent_graph
 ```
 
 You will be prompted for:
+- User ID
+- Session ID
 - YouTube video ID
 - Your query (question, summary request, or translation request)
 - (If translating) Target language code (e.g., `hi` for Hindi)
@@ -96,7 +106,7 @@ You will be prompted for:
 The agent will:
 1. Fetch the transcript
 2. Chunk, embed, and store it
-3. Retrieve relevant chunks
+3. Retrieve relevant transcript chunks and relevant chat history
 4. Let Gemini decide (Q&A, summarize, translate) and respond
 
 ---
@@ -104,19 +114,19 @@ The agent will:
 ## Example
 
 ```
-Enter YouTube video_id: jZyAB2KFDls
-Enter your query: Summarize the main points of this video.
-Mode (qa/summarize/translate): summarize
+User ID: sandesh
+Session ID: s1
+YouTube Video ID: jZyAB2KFDls
+You: Summarize the main points of this video.
 
-Agent Response:
-This video discusses...
+Bot: This video discusses...
 ```
 
 ---
 
 ## Extending
 
-- Add new tools (e.g., sentiment analysis) by defining new node functions and registering them as tools.
+- Add new tools (e.g., sentiment analysis) by defining new node functions and registering them as tools in `yt_agent_graph.py`.
 - Swap out the embedding or LLM provider by editing `rag_service.py` and `llm.py`.
 - Build new workflows by composing nodes in `yt_agent_graph.py`.
 
