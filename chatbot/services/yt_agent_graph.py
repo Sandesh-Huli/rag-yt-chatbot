@@ -2,14 +2,12 @@ from chatbot.services.transcript_service import fetch_youtube_transcript
 from chatbot.models.llm import get_llm_response
 from chatbot.services.rag_service import RAG
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
 import uuid, json, re
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.graph import StateGraph, END, START
-
-# from chatbot.services.agent_service import Chatbot
 from chatbot.services.db_service import DBService  # integrate DB
-from chatbot.services.web_search import web_search
+from chatbot.parsers.orchestrator_parser import structured_llm, Orchestrator
+from chatbot.tools.web_search import web_search
 from langchain_core.tools import Tool
 from dotenv import load_dotenv
 
@@ -37,17 +35,10 @@ class AgentState:
 
 # ---------------- Setup ----------------
 load_dotenv()
-# chatbot = Chatbot()
 rag = RAG()
 db = DBService()
-llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        temperature=0,
-        max_tokens = None,
-        timeout = None,
-        max_retries = 2,
-        max_output_tokens=512
-    )
+# ---------------- Orchestrator Output Parser ----------------
+
 
 # ---------------- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
@@ -61,6 +52,7 @@ def add_transcript_node(state: AgentState) -> AgentState:
     rag.add_transcript(state.transcript_segments, meta={"video_id": state.video_id})
     return state
 
+
 def orchestrator_node(state: AgentState) -> AgentState:
     system_prompt = """
     You are not a chatbot. You are an orchestrator.
@@ -71,45 +63,20 @@ def orchestrator_node(state: AgentState) -> AgentState:
     - "qa" → if the user asks a specific question about the video transcript.
     - "summarize" → if the user asks for a summary.
     - "translate" → if the user asks to translate into another language.
-
-    Examples:
-    User: "What did the speaker say at the end?"
-    Output: {"mode": "qa"}
-
-    User: "Give me a summary"
-    Output: {"mode": "summarize"}
-
-    User: "Translate to Hindi"
-    Output: {"mode": "translate"}
-
     """
 
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": state.query}
     ]
-
-    msg = llm.invoke(messages)
-    raw = msg.content.strip()
-
+    
     try:
-        # Extract JSON even if surrounded by text
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            parsed = json.loads(match.group(0))
-            mode = parsed.get("mode")
-            print(f"\n{mode} was chosen by llm\n")
-            if mode in ["qa", "summarize", "translate"]:
-                state.mode = mode
-            else:
-                state.mode = "qa"  # fallback if invalid mode
-                print("\ndefault qa\n")
-        else:
-            state.mode = "qa"
-            print("\ndefault qa\n")
-    except Exception:
-        state.mode = "qa"
-        print("\ndefault qa\n")
+        parsed: Orchestrator = structured_llm(messages)
+        print(f"\nStructured output from llm = {parsed.mode}\n")
+        state.mode = parsed.mode
+    except Exception as e:
+        print(f"\n[orchestrator fallback due to error: {e}]\n")
+        state.mode = "qa"  # safe fallback
 
     return state
 
@@ -132,7 +99,8 @@ def qa_node(state: AgentState) -> AgentState:
         f"User Question: {state.query}"
     ) 
     tool_decision = get_llm_response(tool_prompt)
-    tool_decision_text = tool_decision.content.strip().lower() if hasattr(tool_decision, "content") else str(tool_decision).strip().lower()
+    # tool_decision_text = tool_decision.content.strip().lower() if hasattr(tool_decision, "content") else str(tool_decision).strip().lower()
+    tool_decision_text = getattr(tool_decision, "content", str(tool_decision)).strip().lower()
     print(tool_decision_text)
     if tool_decision_text == "search":
         web_results = web_search_tool.run(state.query)
@@ -150,7 +118,8 @@ def qa_node(state: AgentState) -> AgentState:
             f"Chat History:\n{history_text}\n\n"
             f"User Question: {state.query}"
         )
-    state.result = get_llm_response(prompt)
+    result = get_llm_response(prompt)
+    state.result = getattr(result, "content", str(result))
     # Save query + answer into RAG memory
     query_text = state.query.content if hasattr(state.query, "content") else str(state.query)
     rag.add_query(query_text, {"role": "user"})
@@ -177,7 +146,8 @@ def summarize_node(state: AgentState) -> AgentState:
         "Summary:"
     )
     
-    state.result = get_llm_response(prompt)
+    result = get_llm_response(prompt)
+    state.result = getattr(result, "content", str(result))
     query_text = state.query.content if hasattr(state.query, "content") else str(state.query)
     rag.add_query(query_text, {"role": "user"})
     
@@ -199,15 +169,21 @@ def translate_node(state: AgentState) -> AgentState:
         f"You are a helpful assistant. Translate the following YouTube video transcript into {state.target_language}, considering the previous chat history for context.\n\n"
         f"Transcript:\n{transcript_text}\n\n"
         f"Chat History:\n{history_text}\n\n"
-        f"Translation ({state.target_language}):"
+        f"Translation:\n({state.target_language})"
     )
     
-    state.result = get_llm_response(prompt, target_language=state.target_language)
+    result = get_llm_response(prompt, target_language=state.target_language)
+    state.result = getattr(result, "content", str(result))
 
     rag.add_query(f"translate video to {state.target_language}", {"role": "user"})
     # If state.result is an LLM message object, extract the content
     result_text = state.result.content if hasattr(state.result, "content") else str(state.result)
     rag.add_query(result_text, {"role": "assistant"})
+
+def fallback_node(state: AgentState) -> AgentState:
+    print("\nfallback node was called by the orchestrator\n")
+    state.result = "I didn’t understand your query. Could you please rephrase?"
+    return state
 
 
 # ---------------- Graph Setup ----------------
@@ -219,6 +195,7 @@ graph.add_node("orchestrator", orchestrator_node)
 graph.add_node("qa", qa_node)
 graph.add_node("summarize", summarize_node)
 graph.add_node("translate", translate_node)
+graph.add_node("fallback", fallback_node)
 
 graph.add_edge(START, "fetch_transcript")
 graph.add_edge("fetch_transcript", "add_transcript")
@@ -227,12 +204,13 @@ graph.add_edge("add_transcript", "orchestrator")
 graph.add_conditional_edges(
     "orchestrator",
     lambda state: state.mode,
-    {"qa": "qa", "summarize": "summarize", "translate": "translate"}
+    {"qa": "qa", "summarize": "summarize", "translate": "translate","fallback":"fallback"}
 )
 
 graph.add_edge("qa", END)
 graph.add_edge("summarize", END)
 graph.add_edge("translate", END)
+graph.add_edge("fallback",END)
 
 yt_agent_graph = graph.compile()
 
