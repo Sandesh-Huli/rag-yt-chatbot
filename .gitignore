@@ -8,6 +8,7 @@ __pycache__/
 
 # Environment variables
 .env
+backend/.env
 
 # VS Code settings
 .vscode/
@@ -27,3 +28,6 @@ env/
 
 # FAISS index files
 project-structure.txt
+
+# Node.js modules
+backend/node_modules/
