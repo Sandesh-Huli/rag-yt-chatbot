@@ -20,7 +20,6 @@ web_search_tool = Tool(
 # ---------------- Agent State ----------------
 @dataclass
 class AgentState:
-    user_id: str
     session_id: str
     video_id: str
     query: str
@@ -214,9 +213,10 @@ graph.add_edge("fallback",END)
 
 yt_agent_graph = graph.compile()
 
-def run_query(user_id: str, session_id: str, video_id: str, query: str) -> str:
+async def run_query(session_id: str, video_id: str, query: str) -> str:
+    print(video_id)
     # Load previous history for this session
-    history = db.get_chat_history(user_id, video_id,session_id) or []
+    history = db.get_chat_history(session_id) or []
     # Format history into messages for the LLM
     history_msgs = []
     if history:
@@ -231,7 +231,6 @@ def run_query(user_id: str, session_id: str, video_id: str, query: str) -> str:
     rag.add_query(query,{"role":"user"})
     # Run the graph
     state = AgentState(
-        user_id=user_id,
         session_id=session_id,
         video_id=video_id,
         query=query,
@@ -246,10 +245,11 @@ def run_query(user_id: str, session_id: str, video_id: str, query: str) -> str:
     answer = final_state["result"]
 
     # Save to DB
-    db.add_message(user_id, video_id, session_id, "user", query)
+    db.add_message(session_id,video_id, "user", query)
     
     assistant_message = answer.content if hasattr(answer, "content") else str(answer)
-    db.add_message(user_id, video_id, session_id, "assistant", assistant_message)
+    print(f'Assistant: {assistant_message}\n')
+    db.add_message(session_id,video_id, "assistant", assistant_message)
 
     rag.add_query(assistant_message,{"role":"assistant"})
     
@@ -260,7 +260,7 @@ def run_query(user_id: str, session_id: str, video_id: str, query: str) -> str:
 if __name__ == "__main__":
     # Ask once for thread_id + video_id, then continue chat loop
     session_id = input("Enter session_id (leave blank for new): ").strip() or str(uuid.uuid4())
-    user_id = input("Enter user_id (leave blank for new): ").strip() or str(uuid.uuid4())
+    # user_id = input("Enter user_id (leave blank for new): ").strip() or str(uuid.uuid4())
     video_id = input("Enter YouTube video_id: ")
 
     print("\n💬 Chat started. Type 'quit' to exit.\n")
@@ -271,6 +271,6 @@ if __name__ == "__main__":
             print("👋 Chat ended.")
             break
 
-        response = run_query(user_id,session_id, video_id, query)
+        response = run_query(session_id, video_id, query)
         
         print("Assistant:", response)
