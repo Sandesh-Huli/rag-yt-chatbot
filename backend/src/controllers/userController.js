@@ -77,3 +77,25 @@ export const loginUser = async(req,res)=>{
         });
     }
 }
+export const previewUser = async(req,res)=>{
+    try{
+        const id = req.params.id;
+        if(!id){
+            return res.json({success:false,message:"User id not found"});
+        }
+        const user =  await userModel.findOne({_id:id});
+        if(!user){
+            return res.json({success:false,message:"User not found"});
+        }
+        return res.json({
+            success:true,
+            user:user,
+            message:"User profile"
+        })
+    }catch(err){
+        return res.json({
+            success:false,
+            message:err.message
+        });
+    }
+}
