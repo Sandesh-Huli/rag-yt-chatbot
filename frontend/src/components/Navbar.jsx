@@ -1,14 +1,16 @@
-import { useContext } from 'react';
+import { useContext, useState } from 'react';
 import logo from '../assets/logo.png'
 import sidebar from '../assets/sidebar.png'
 import { AppContext } from "../context/AppContext";
+import Sidebar from './Sidebar.jsx'
 export default function Navbar() {
     const { showLogin, setShowLogin } = useContext(AppContext);
+    const [showSidebar, setShowSidebar] = useState(false);
     return (
         <>
             <div className='flex items-center justify-between shadow-md px-6 py-3'>
                 <div className='flex items-center gap-5'>
-                    <img src={sidebar} alt="sidebar" className='h-8 w-8 cursor-pointer hover:scale-110 transition-transform duration-200' />
+                    <img src={sidebar} alt="sidebar" className='h-8 w-8 cursor-pointer hover:scale-110 transition-transform duration-200' onClick={()=>setShowSidebar(!showSidebar)}/>
                     <img src={logo} alt="logo" className='w-12 h-12 object-contain cursor-pointer ' />
                     <div className='ml-2'>
                         <h1 className='text-xl font-bold text-gray-800'>RAG YT CHATBOT</h1>
@@ -20,6 +22,7 @@ export default function Navbar() {
                                 {showLogin === false ? 'Sign Up' : 'Login'}</button>
                 </div>
             </div>
+            {showSidebar && <Sidebar />}
         </>
     )
 }
