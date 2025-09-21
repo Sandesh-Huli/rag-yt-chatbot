@@ -2,10 +2,12 @@ import { useContext, useState } from 'react';
 import logo from '../assets/logo.png'
 import sidebar from '../assets/sidebar.png'
 import { AppContext } from "../context/AppContext";
-import Sidebar from './Sidebar.jsx'
 export default function Navbar() {
-    const { showLogin, setShowLogin } = useContext(AppContext);
-    const [showSidebar, setShowSidebar] = useState(false);
+    const { showLogin, setShowLogin,showSidebar, setShowSidebar } = useContext(AppContext);
+    const handleLoginClick = ()=>{
+        //add logic later 
+        setShowLogin(!showLogin);
+    }
     return (
         <>
             <div className='flex items-center justify-between shadow-md px-6 py-3'>
@@ -18,11 +20,10 @@ export default function Navbar() {
                     </div>
                 </div>
                 <div className='auth '>
-                    <button className="bg-zinc-800 text-white px-5 py-2 rounded-md sm:px-10 " onClick={() => setShowLogin(!showLogin)}>
+                    <button className="bg-zinc-800 text-white px-5 py-2 rounded-md sm:px-10 " onClick={handleLoginClick}>
                                 {showLogin === false ? 'Sign Up' : 'Login'}</button>
                 </div>
             </div>
-            {showSidebar && <Sidebar />}
         </>
     )
 }
