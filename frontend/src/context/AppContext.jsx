@@ -6,11 +6,15 @@ const AppContextProvider = (props)=>{
     const [authMode,setAuthMode] = useState('signup');
     const [showLogin,setShowLogin] = useState(false);
     const [showProfle,setShowProfile] = useState(false);
+    const [newChat,setNewChat] = useState(true);
+    const [showSidebar, setShowSidebar] = useState(false);
     const value = {
         user,setUser,
         authMode,setAuthMode,
         showLogin,setShowLogin,
-        showProfle,setShowProfile
+        showProfle,setShowProfile,
+        newChat,setNewChat,
+        showSidebar, setShowSidebar
     };
     return (
         <AppContext.Provider value={value}>
