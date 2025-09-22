@@ -2,8 +2,9 @@ import { useContext, useState } from 'react';
 import logo from '../assets/logo.png'
 import sidebar from '../assets/sidebar.png'
 import { AppContext } from "../context/AppContext";
+import Auth from './Auth.jsx';
 export default function Navbar() {
-    const { showLogin, setShowLogin,showSidebar, setShowSidebar } = useContext(AppContext);
+    const {user, setUser, showSidebar, setShowSidebar, authMode, setAuthMode,showLogin,setShowLogin } = useContext(AppContext);
     const handleLoginClick = ()=>{
         //add logic later 
         setShowLogin(!showLogin);
@@ -21,9 +22,14 @@ export default function Navbar() {
                 </div>
                 <div className='auth '>
                     <button className="bg-zinc-800 text-white px-5 py-2 rounded-md sm:px-10 " onClick={handleLoginClick}>
-                                {showLogin === false ? 'Sign Up' : 'Login'}</button>
+                                {showLogin === false ? 'Sign Up' : 'Login'}
+                    </button>
                 </div>
+                {
+                    showLogin && <Auth />
+                }
             </div>
         </>
     )
+    
 }

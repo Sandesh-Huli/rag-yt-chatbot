@@ -10,7 +10,7 @@ export const IPromptBar = () =>{
 export const FPromptBar = ()=>{
     return(
         <div className='flex items-center gap-3 bg-white p-4 rounded-lg shadow'>
-            <textarea name="prompt" className="flex-1resize-none border border-gray-300 rounded-md px-3 py-2 foxus:outline-none focus:ring-blue-400 transition" placeholder='Enter your query here' rows={2}></textarea>
+            <textarea name="prompt" className="flex-1 resize-none border border-gray-400 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 transition" placeholder='Enter your query here' rows={2}></textarea>
             <button className='bg-blue-600 p-2 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center'><img src={send} alt="send" className='h-5 w-5'/></button>
         </div>
 
