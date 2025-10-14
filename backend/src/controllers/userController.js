@@ -24,7 +24,7 @@ export const registerUser = async (req,res)=>{
         const newUser = await newUserModel.save();  
         
         const token = jwt.sign({id:newUser._id},JWT_SECRET);
-        res.json({
+        return res.json({
             success:true,
             token:token,
             user:{
@@ -33,7 +33,7 @@ export const registerUser = async (req,res)=>{
         })
     } catch (error) {
         console.log(error)
-        res.json({
+        return res.json({
             success:false,
             message:error.message
         })

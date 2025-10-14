@@ -11,7 +11,9 @@ export const getSessions  = async (req,res) => {
         const response = await axios.get(`${FASTAPI_URL}/sessions`);
         res.json(response.data);
     }catch (err){
-        res.status(500).json({error : 'Failed to fetch sessions', details : err.message});
+        res.status(500).json({
+        error : 'Failed to fetch sessions',
+        details : err.message});
     }
 }
 export const getChat = async (req,res) =>{
