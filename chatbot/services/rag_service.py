@@ -139,6 +139,7 @@ class RAG:
                     "score": float(score),
                     "metadata": self.query_metadata[idx]
                 })
+                
         return results
 
 
