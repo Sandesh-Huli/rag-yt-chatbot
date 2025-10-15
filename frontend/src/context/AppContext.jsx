@@ -8,7 +8,7 @@ const AppContextProvider = (props)=>{
     const [newChat,setNewChat] = useState(true);
     const [showSidebar, setShowSidebar] = useState(false);
     const [showLogin,setShowLogin] = useState(false);
-    const [video_id,setVideoId] = useState('');
+    
     const value = {
         user,setUser,
         authMode,setAuthMode,
@@ -16,7 +16,7 @@ const AppContextProvider = (props)=>{
         showLogin,setShowLogin,
         newChat,setNewChat,
         showSidebar, setShowSidebar,
-        video_id,setVideoId
+        
     };
     return (
         <AppContext.Provider value={value}>
