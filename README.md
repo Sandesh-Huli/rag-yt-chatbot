@@ -72,17 +72,60 @@ chatbot/
 1. **Clone the repository**
 
 2. **Install dependencies**
+   
+   **Python dependencies:**
    ```sh
    pip install -r requirements.txt
+   ```
+   
+   **Backend (Node.js) dependencies:**
+   ```sh
+   cd backend
+   npm install
+   ```
+   
+   **Frontend dependencies:**
+   ```sh
+   cd frontend
+   npm install
    ```
 
 3. **Set up your environment variables**
 
-   - Create a `.env` file in the project root:
-     ```
-     GOOGLE_API_KEY=your-gemini-api-key-here
-     ```
-   - (You can use a Gemini API key or set up another supported embedding/LLM provider.)
+   **Root directory** - Copy `.env.example` to `.env` and fill in your API keys:
+   ```sh
+   cp .env.example .env
+   ```
+   
+   Required variables:
+   - `GOOGLE_API_KEY` - Your Google API key for Gemini
+   - `GOOGLE_CSE_ID` - Your Google Custom Search Engine ID
+   - `PPLX_API_KEY` - Your Perplexity API key
+   - `MONGO_URI` - MongoDB connection string
+   
+   **Backend directory** - Copy `backend/.env.example` to `backend/.env`:
+   ```sh
+   cp backend/.env.example backend/.env
+   ```
+   
+   Required variables:
+   - `JWT_SECRET` - Strong random string for JWT signing
+   - `SESSION_SECRET` - Strong random string for sessions
+   - `MONGO_URI` - MongoDB connection string
+   - `PORT` - Backend server port (default: 4000)
+   - `FASTAPI_URL` - FastAPI backend URL
+   
+   **Frontend directory** - Copy `frontend/.env.example` to `frontend/.env`:
+   ```sh
+   cp frontend/.env.example frontend/.env
+   ```
+
+4. **Start MongoDB**
+   
+   Make sure MongoDB is running on your system:
+   ```sh
+   mongod
+   ```
 
 ---
 

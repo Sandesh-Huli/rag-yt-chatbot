@@ -32,8 +32,7 @@ export const registerUser = async (req,res)=>{
             }
         })
     } catch (error) {
-        console.log(error)
-        return res.json({
+        return res.status(500).json({
             success:false,
             message:error.message
         })
@@ -61,6 +60,7 @@ export const loginUser = async(req,res)=>{
             return res.json({
                 success:true,
                 token:token,
+                username:user.username,
                 message:"Login successful"
             })
         }else{
@@ -70,8 +70,7 @@ export const loginUser = async(req,res)=>{
             })
         }
     } catch (error) {
-        console.log(error)
-        return res.json({
+        return res.status(500).json({
             success:false,
             message:error.message
         });

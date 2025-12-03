@@ -14,7 +14,6 @@ def fetch_youtube_transcript(video_id: str, lang: str = "en") -> list[str]:
     """
     transcript = db.get_transcript(video_id=video_id)
     if transcript:
-        print('transcript modla fetch maadidde')
         return transcript
     try:
         api = YouTubeTranscriptApi()
@@ -35,7 +34,6 @@ def fetch_youtube_transcript(video_id: str, lang: str = "en") -> list[str]:
         transcript_list = transcript_obj.fetch()
         segments = [chunk["text"] if isinstance(chunk, dict) else chunk.text for chunk in transcript_list]
         db.save_transcript(video_id, segments)
-        print('Transcript fetched from YouTube and saved to database.')
         return segments
     except TranscriptsDisabled:
         raise Exception("Transcripts are disabled for this video.")

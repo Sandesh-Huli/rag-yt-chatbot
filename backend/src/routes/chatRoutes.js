@@ -3,7 +3,11 @@ dotenv.config();
 
 import express from 'express'
 import {getSessions,getChat, resumeChat, newChat, deleteChat} from '../controllers/chatController.js'
+import authenticateUser from '../middlewares/authenticateUser.js'
 const router = express.Router()
+
+// All chat routes require authentication
+router.use(authenticateUser);
 
 //display all chats route
 router.get('/sessions',getSessions)

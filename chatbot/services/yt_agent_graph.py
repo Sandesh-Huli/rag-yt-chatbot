@@ -5,11 +5,14 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Literal
 import uuid, json, re
 from langgraph.graph import StateGraph, END, START
-from chatbot.services.db_service import DBService  # integrate DB
+from chatbot.services.db_service import DBService
 from chatbot.parsers.orchestrator_parser import structured_llm, Orchestrator
 from chatbot.tools.web_search import web_search
 from langchain_core.tools import Tool
 from dotenv import load_dotenv
+import logging
+
+logger = logging.getLogger(__name__)
 
 web_search_tool = Tool(
     name="web_search",
@@ -36,7 +39,6 @@ class AgentState:
 load_dotenv()
 rag = RAG()
 db = DBService()
-# ---------------- Orchestrator Output Parser ----------------
 
 
 # ---------------- Graph Nodes ----------------
@@ -71,17 +73,17 @@ def orchestrator_node(state: AgentState) -> AgentState:
     
     try:
         parsed: Orchestrator = structured_llm(messages)
-        print(f"\nStructured output from llm = {parsed.mode}\n")
+        logger.info(f"Orchestrator selected mode: {parsed.mode}")
         state.mode = parsed.mode
     except Exception as e:
-        print(f"\n[orchestrator fallback due to error: {e}]\n")
+        logger.warning(f"Orchestrator fallback due to error: {e}")
         state.mode = "qa"  # safe fallback
 
     return state
 
 
 def qa_node(state: AgentState) -> AgentState:
-    print("\nqa node was called by the orchestrator\n")
+    logger.debug("QA node called")
     transcript_text=""
     if state.transcript_segments:
         transcript_text = "\n".join(state.transcript_segments)
@@ -98,9 +100,8 @@ def qa_node(state: AgentState) -> AgentState:
         f"User Question: {state.query}"
     ) 
     tool_decision = get_llm_response(tool_prompt)
-    # tool_decision_text = tool_decision.content.strip().lower() if hasattr(tool_decision, "content") else str(tool_decision).strip().lower()
     tool_decision_text = getattr(tool_decision, "content", str(tool_decision)).strip().lower()
-    print(tool_decision_text)
+    logger.debug(f"Tool decision: {tool_decision_text}")
     if tool_decision_text == "search":
         web_results = web_search_tool.run(state.query)
         prompt = (
@@ -129,7 +130,7 @@ def qa_node(state: AgentState) -> AgentState:
     return state
 
 def summarize_node(state: AgentState) -> AgentState:
-    print("\nsummarize node was called by the orchestrator\n")
+    logger.debug("Summarize node called")
     transcript_text = ""
     if state.transcript_segments:
         transcript_text = "\n".join(state.transcript_segments)
@@ -155,7 +156,7 @@ def summarize_node(state: AgentState) -> AgentState:
     return state
 
 def translate_node(state: AgentState) -> AgentState:
-    print("\ntranslate node was called by the orchestrator\n")
+    logger.debug("Translate node called")
     transcript_text = ""
     if state.transcript_segments:
         transcript_text = "\n".join(state.transcript_segments)
@@ -180,8 +181,8 @@ def translate_node(state: AgentState) -> AgentState:
     rag.add_query(result_text, {"role": "assistant"})
 
 def fallback_node(state: AgentState) -> AgentState:
-    print("\nfallback node was called by the orchestrator\n")
-    state.result = "I didn’t understand your query. Could you please rephrase?"
+    logger.debug("Fallback node called")
+    state.result = "I didn't understand your query. Could you please rephrase?"
     return state
 
 
@@ -213,8 +214,8 @@ graph.add_edge("fallback",END)
 
 yt_agent_graph = graph.compile()
 
-async def run_query(session_id: str, video_id: str, query: str) -> str:
-    print(video_id)
+def run_query(session_id: str, video_id: str, query: str) -> str:
+    logger.info(f"Running query for video: {video_id}, session: {session_id}")
     # Load previous history for this session
     history = db.get_chat_history(session_id) or []
     # Format history into messages for the LLM
@@ -226,7 +227,7 @@ async def run_query(session_id: str, video_id: str, query: str) -> str:
             history_msgs.append({"role": role, "content": content})
     # Add the new user query
     history_msgs.append({"role": "user", "content": query})
-    print(history_msgs)
+    logger.debug(f"History messages count: {len(history_msgs)}")
 
     rag.add_query(query,{"role":"user"})
     # Run the graph
@@ -241,14 +242,13 @@ async def run_query(session_id: str, video_id: str, query: str) -> str:
         state,
         config={"configurable": {"session_id": state.session_id}}
     )
-    # print(final_state.result)
     answer = final_state["result"]
 
     # Save to DB
     db.add_message(session_id,video_id, "user", query)
     
     assistant_message = answer.content if hasattr(answer, "content") else str(answer)
-    print(f'Assistant: {assistant_message}\n')
+    logger.debug(f"Generated response length: {len(assistant_message)} chars")
     db.add_message(session_id,video_id, "assistant", assistant_message)
 
     rag.add_query(assistant_message,{"role":"assistant"})
@@ -260,7 +260,6 @@ async def run_query(session_id: str, video_id: str, query: str) -> str:
 if __name__ == "__main__":
     # Ask once for thread_id + video_id, then continue chat loop
     session_id = input("Enter session_id (leave blank for new): ").strip() or str(uuid.uuid4())
-    # user_id = input("Enter user_id (leave blank for new): ").strip() or str(uuid.uuid4())
     video_id = input("Enter YouTube video_id: ")
 
     print("\n💬 Chat started. Type 'quit' to exit.\n")

@@ -6,16 +6,7 @@ import Chat from "./Chat.jsx";
 export default function Body(){
     const {newChat} = useContext(AppContext);
     const {chatHistory} = useContext(ChatContext);
-    // return(
-    //     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
-    //         <h3 className="text-2xl font-semibold text-gray-800 mb-6 text-center">
-    //             Enter a Youtube video URL to begin the discussion with AI
-    //         </h3>
-    //         <div className="w-full max-w-2xl">
-    //             {newChat === true ? <IPromptBar /> : <FPromptBar />}
-    //         </div>
-    //     </div>
-    // )
+
     return (
         <div className="flex flex-col h-full px-4 py-6">
             {newChat ? (

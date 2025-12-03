@@ -9,16 +9,19 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any
 import numpy as np
 import faiss
+import sys
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from chatbot.services.transcript_service import fetch_youtube_transcript
 
 class RAG:
     def __init__(self,chunk_size: int =100 , chunk_overlap: int = 30, persist_dir: str = "./rag_store"):
         load_dotenv()
-        self.embedding_model = GoogleGenerativeAIEmbeddings(
-            model = "models/gemini-embedding-001",
-            # google_api_key=google_api_key
+        self.embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-mpnet-base-v2",
+            model_kwargs={'device': 'cpu'},
+            encode_kwargs={'normalize_embeddings': True}
         )
         self.persist_dir = persist_dir
         os.makedirs(self.persist_dir, exist_ok=True)
@@ -97,8 +100,6 @@ class RAG:
             top_k = int(top_k[0])
         else:
             top_k = int(top_k)
-            
-        print("DEBUG top_k type:", type(top_k), "value:", top_k)
 
         query_emb = np.array(self.embedding_model.embed_query(query)).astype("float32").reshape(1, -1)
         D, I = self.transcript_index.search(query_emb, top_k)
@@ -116,7 +117,6 @@ class RAG:
         """Embeds and stores chat history messages (user or assistant)."""
         emb = self.embedding_model.embed_query(query)
         emb_np = np.array(emb).astype("float32").reshape(1, -1)
-
         if self.query_index is None:
             self.query_index = faiss.IndexFlatL2(emb_np.shape[1])
 
@@ -127,7 +127,6 @@ class RAG:
     def retrieve_queries(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Retrieve semantically relevant chat history messages."""
         if self.query_index is None or len(self.query_texts) == 0:
-            print('valag bande')
             return []
         query_emb = np.array(self.embedding_model.embed_query(query)).astype("float32").reshape(1, -1)
         D, I = self.query_index.search(query_emb, top_k)
@@ -150,7 +149,7 @@ if __name__ == "__main__":
     rag = RAG()
     rag.add_transcript(transcript_segments, meta={"video_id": video_id})
     query = input('Enter your query here: ')
-    results = rag.retrieve(query=query, top_k=2)
+    results = rag.retrieve_queries(query=query, top_k=2)
     print("Top results:")
     for res in results:
         print("-", res["text"], "| Score:", res["score"])

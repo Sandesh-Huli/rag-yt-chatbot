@@ -8,4 +8,3 @@ def web_search(query : str, count : int = 3):
     search = GoogleSearchAPIWrapper(k=count)
     response = search.run(query=query)
     return response
-# print(response)

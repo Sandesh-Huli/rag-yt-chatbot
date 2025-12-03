@@ -4,10 +4,16 @@ import sidebar from '../assets/sidebar.png'
 import { AppContext } from "../context/AppContext";
 import Auth from './Auth.jsx';
 export default function Navbar() {
-    const {user, setUser, showSidebar, setShowSidebar, authMode, setAuthMode,showLogin,setShowLogin } = useContext(AppContext);
+    const {user, setUser, showSidebar, setShowSidebar, authMode, setAuthMode,showLogin,setShowLogin, logout } = useContext(AppContext);
+    const [showDropdown, setShowDropdown] = useState(false);
+    
     const handleLoginClick = ()=>{
-        //add logic later 
         setShowLogin(!showLogin);
+    }
+    
+    const handleLogout = () => {
+        logout();
+        setShowDropdown(false);
     }
     return (
         <>
@@ -20,10 +26,34 @@ export default function Navbar() {
                         <p className='text-sm text-gray-500'>Analyze and discuss video with AI</p>
                     </div>
                 </div>
-                <div className='auth '>
-                    <button className="bg-zinc-800 text-white px-5 py-2 rounded-md sm:px-10 " onClick={handleLoginClick}>
-                                {showLogin === false ? 'Sign Up' : 'Login'}
-                    </button>
+                <div className='auth relative'>
+                    {user ? (
+                        <div className="relative">
+                            <button 
+                                className="bg-zinc-800 text-white px-5 py-2 rounded-md sm:px-10 hover:bg-zinc-700 transition-colors" 
+                                onClick={() => setShowDropdown(!showDropdown)}
+                            >
+                                {user.username}
+                            </button>
+                            {showDropdown && (
+                                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border">
+                                    <div className="px-4 py-2 text-sm text-gray-700 border-b">
+                                        <p className="font-semibold">{user.username}</p>
+                                    </div>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                    >
+                                        Logout
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <button className="bg-zinc-800 text-white px-5 py-2 rounded-md sm:px-10 hover:bg-zinc-700 transition-colors" onClick={handleLoginClick}>
+                            {showLogin === false ? 'Sign Up' : 'Login'}
+                        </button>
+                    )}
                 </div>
                 {
                     showLogin && <Auth />

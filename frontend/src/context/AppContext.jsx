@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useState, useEffect } from "react";
 
 export const AppContext = createContext();
 const AppContextProvider = (props)=>{
@@ -8,6 +8,22 @@ const AppContextProvider = (props)=>{
     const [newChat,setNewChat] = useState(true);
     const [showSidebar, setShowSidebar] = useState(false);
     const [showLogin,setShowLogin] = useState(false);
+
+    // Check for existing user session on mount
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        const username = localStorage.getItem('username');
+        if (token && username) {
+            setUser({ username, token });
+        }
+    }, []);
+
+    // Logout function
+    const logout = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        setUser(null);
+    };
     
     const value = {
         user,setUser,
@@ -16,7 +32,7 @@ const AppContextProvider = (props)=>{
         showLogin,setShowLogin,
         newChat,setNewChat,
         showSidebar, setShowSidebar,
-        
+        logout,
     };
     return (
         <AppContext.Provider value={value}>
