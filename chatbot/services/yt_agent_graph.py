@@ -43,40 +43,35 @@ db = DBService()
 
 # ---------------- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
-    
+    logger.info(f"🎬 Fetching transcript for video: {state.video_id}")
     state.transcript_segments =  fetch_youtube_transcript(state.video_id,state.lang)
+    logger.info(f"✅ Transcript fetched: {len(state.transcript_segments)} segments")
     return state
 
 def add_transcript_node(state: AgentState) -> AgentState:
     if not state.transcript_segments:
         raise RuntimeError("No transcript loaded. Please fetch transcript first.")
+    
+    if rag.is_video_indexed(state.video_id):
+        logger.info(f"✅ Transcript already indexed for video: {state.video_id}")
+        return state
+    
+    logger.info(f"🔄 Adding transcript to RAG for video: {state.video_id}")
     rag.add_transcript(state.transcript_segments, meta={"video_id": state.video_id})
+    logger.info(f"💾 Transcript embeddings saved to FAISS")
     return state
 
 
 def orchestrator_node(state: AgentState) -> AgentState:
-    system_prompt = """
-    You are not a chatbot. You are an orchestrator.
-    Your ONLY job is to decide which mode to use for the YouTube assistant.
-    You must always respond with EXACTLY one JSON object and nothing else.
-
-    The valid modes are:
-    - "qa" → if the user asks a specific question about the video transcript.
-    - "summarize" → if the user asks for a summary.
-    - "translate" → if the user asks to translate into another language.
-    """
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": state.query}
-    ]
+    logger.info(f"🎯 Orchestrator analyzing query: {state.query[:50]}...")
     
     try:
-        parsed: Orchestrator = structured_llm(messages)
-        logger.info(f"Orchestrator selected mode: {parsed.mode}")
-        state.mode = parsed.mode
+        # Call structured_llm with the query - it handles the structured output
+        orchestrator_response: Orchestrator = structured_llm(state.query)
+        logger.info(f"✅ Orchestrator selected mode: {orchestrator_response.mode}")
+        state.mode = orchestrator_response.mode
     except Exception as e:
-        logger.warning(f"Orchestrator fallback due to error: {e}")
+        logger.warning(f"⚠️ Orchestrator fallback due to error: {e}")
         state.mode = "qa"  # safe fallback
 
     return state
@@ -179,6 +174,7 @@ def translate_node(state: AgentState) -> AgentState:
     # If state.result is an LLM message object, extract the content
     result_text = state.result.content if hasattr(state.result, "content") else str(state.result)
     rag.add_query(result_text, {"role": "assistant"})
+    return state
 
 def fallback_node(state: AgentState) -> AgentState:
     logger.debug("Fallback node called")

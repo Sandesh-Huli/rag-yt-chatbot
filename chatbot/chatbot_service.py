@@ -16,8 +16,7 @@ logger = logging.getLogger(__name__)
 required_env_vars = [
     'MONGO_URI',
     'GOOGLE_API_KEY',
-    'GOOGLE_CSE_ID',
-    'PPLX_API_KEY'
+    'GOOGLE_CSE_ID'
 ]
 
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
@@ -47,7 +46,7 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

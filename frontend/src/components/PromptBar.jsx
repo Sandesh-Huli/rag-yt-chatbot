@@ -77,7 +77,7 @@ export const IPromptBar = () => {
     )
 }
 export const FPromptBar = () => {
-    const { video_id, addMessage, activeChatId } = useContext(ChatContext);
+    const { video_id, addMessage, activeChatId, setActiveChatId, setShouldRefetchSessions } = useContext(ChatContext);
     const [query, setQuery] = useState('');
     const [loading, setLoading] = useState(false);
     
@@ -92,9 +92,18 @@ export const FPromptBar = () => {
         addMessage(query, 'user');
         
         try {
-            const res = activeChatId
-                ? await apiService.resumeChat(activeChatId, video_id, query)
-                : await apiService.newChat(video_id, query);
+            let res;
+            if (activeChatId) {
+                res = await apiService.resumeChat(activeChatId, video_id, query);
+            } else {
+                res = await apiService.newChat(video_id, query);
+                // Set the session_id from the new chat response
+                if (res.data?.session_id) {
+                    setActiveChatId(res.data.session_id);
+                    // Trigger refetch of sessions to show the new chat in sidebar
+                    setShouldRefetchSessions(true);
+                }
+            }
             
             addMessage(res.data.response, 'ai');
             setQuery('');
@@ -102,10 +111,12 @@ export const FPromptBar = () => {
             console.error('Error details:', {
                 message: err.message,
                 response: err.response?.data,
-                status: err.response?.status
+                status: err.response?.status,
+                url: err.config?.url
             });
             
             const errorMessage = err.response?.data?.detail || 
+                               err.response?.data?.error ||
                                err.response?.data?.message || 
                                'Sorry, something went wrong. Please try again.';
             addMessage(errorMessage, 'ai');

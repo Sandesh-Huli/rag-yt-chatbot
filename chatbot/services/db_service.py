@@ -113,8 +113,8 @@ class DBService:
             {
                 "session_id": d["session_id"],
                 "video_id": d["video_id"],
-                "last_updated": d["last_updated"],
-                "created_at": d.get("created_at"),
+                "last_updated": d["last_updated"].isoformat() if d.get("last_updated") else None,
+                "created_at": d["created_at"].isoformat() if d.get("created_at") else None,
                 "user_id": d.get("user_id"),
             } for d in docs
         ]

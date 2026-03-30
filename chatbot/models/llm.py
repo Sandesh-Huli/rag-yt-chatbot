@@ -1,23 +1,26 @@
 """
-LLM utility for generating responses using Gemini (Google Generative AI).
+LLM utility for generating responses using Gemini 2.5 Flash (Google Generative AI).
 """
 
 import os
-import getpass
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-# from langchain.chat_models import init_chat_model
-from langchain_perplexity import ChatPerplexity
 
 class LLM:
     def __init__(self):
         load_dotenv()
-        api_key = os.getenv('PPLX_API_KEY')
-        self.llm = ChatPerplexity(temperature=0, pplx_api_key=api_key, model="sonar")
+        api_key = os.getenv('GOOGLE_API_KEY')
+        if not api_key:
+            raise ValueError("GOOGLE_API_KEY environment variable not set")
+        self.llm = ChatGoogleGenerativeAI(
+            model='gemini-2.5-flash',
+            api_key=api_key,
+            temperature=0
+        )
 
 def get_llm_response(prompt: str, target_language: str = None) -> str:
     """
-    Calls Perplexity Sonar AI model with the given prompt and returns the response text.
+    Calls Gemini 2.5 Flash model with the given prompt and returns the response text.
     """
     llm = LLM()
     response = llm.llm.invoke(prompt)

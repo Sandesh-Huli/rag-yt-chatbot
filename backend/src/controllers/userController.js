@@ -10,12 +10,26 @@ import jwt from 'jsonwebtoken'
 export const registerUser = async (req,res)=>{
     try {
         const {email,password,username} = req.body;
+        console.log('📝 Signup request:', { username, email, hasPassword: !!password });
+        
         if(!username || !email || !password){
+            console.log('❌ Missing details in signup');
             return res.json({
                 success:false,
                 message:"Missing details"
             });
         }
+
+        // Check if user already exists
+        const existingUser = await userModel.findOne({ email });
+        if (existingUser) {
+            console.log('❌ User already exists:', email);
+            return res.status(400).json({
+                success: false,
+                message: "User with this email already exists"
+            });
+        }
+
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password,salt);
         const newUserModel = new userModel({
@@ -24,6 +38,7 @@ export const registerUser = async (req,res)=>{
         const newUser = await newUserModel.save();  
         
         const token = jwt.sign({id:newUser._id},JWT_SECRET);
+        console.log('✅ User registered successfully:', username);
         return res.json({
             success:true,
             token:token,
@@ -32,9 +47,10 @@ export const registerUser = async (req,res)=>{
             }
         })
     } catch (error) {
+        console.error('❌ Signup error:', error);
         return res.status(500).json({
             success:false,
-            message:error.message
+            message: error.code === 11000 ? 'Email already exists' : error.message
         })
     }
 }

@@ -7,41 +7,50 @@ import { apiService } from '../services/api'
 
 export default function Sidebar() {
     const { newChat, setNewChat, user } = useContext(AppContext);
-    const { startNewChat, chatSessions, setChatSessions, saveCurrentChat, chatHistory, video_id, setActiveChatId, resumeChat } = useContext(ChatContext);
+    const { startNewChat, chatSessions, setChatSessions, saveCurrentChat, chatHistory, video_id, setActiveChatId, resumeChat, shouldRefetchSessions, setShouldRefetchSessions } = useContext(ChatContext);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
-    useEffect(() => {
-        const fetchSessions = async () => {
-            // Only fetch if user is logged in
-            if (!user || !user.token) {
-                setChatSessions([]);
-                return;
-            }
+    const fetchSessions = async () => {
+        // Only fetch if user is logged in
+        if (!user || !user.token) {
+            setChatSessions([]);
+            return;
+        }
 
-            try {
-                setLoading(true);
-                setError(null);
-                const res = await apiService.getChatSessions();
-                // Normalize IDs (backend returns session_id)
-                const sessions = (res.data || []).map(s => ({
-                    id: s.session_id || s.id,
-                    session_id: s.session_id || s.id,
-                    video_id: s.video_id,
-                    last_updated: s.last_updated,
-                    created_at: s.created_at,
-                    title: s.title || `Video: ${s.video_id.substring(0, 8)}...`
-                }));
-                setChatSessions(sessions);
-            } catch (err) {
-                console.error('Error fetching sessions:', err);
-                setError(err.response?.data?.message || err.response?.data?.detail || 'Failed to load previous chats');
-            } finally {
-                setLoading(false);
-            }
-        };
+        try {
+            setLoading(true);
+            setError(null);
+            const res = await apiService.getChatSessions();
+            // Normalize IDs (backend returns session_id)
+            const sessions = (res.data || []).map(s => ({
+                id: s.session_id || s.id,
+                session_id: s.session_id || s.id,
+                video_id: s.video_id,
+                last_updated: s.last_updated,
+                created_at: s.created_at,
+                title: s.title || `Video: ${s.video_id.substring(0, 8)}...`
+            }));
+            setChatSessions(sessions);
+        } catch (err) {
+            console.error('Error fetching sessions:', err);
+            setError(err.response?.data?.message || err.response?.data?.detail || 'Failed to load previous chats');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchSessions();
     }, [user]);
+
+    // Refetch sessions when triggered
+    useEffect(() => {
+        if (shouldRefetchSessions) {
+            fetchSessions();
+            setShouldRefetchSessions(false);
+        }
+    }, [shouldRefetchSessions]);
 
     const [resumingChatId, setResumingChatId] = useState(null);
 

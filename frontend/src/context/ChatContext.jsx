@@ -6,6 +6,7 @@ const ChatContextProvider = (props)=>{
     const [chatHistory,setChatHistory]=useState([]);
     const [activeChatId,setActiveChatId] = useState('');
     const [chatSessions,setChatSessions] = useState([]);
+    const [shouldRefetchSessions, setShouldRefetchSessions] = useState(false);
     //function to add new message
     const addMessage = (content,sender)=>{
         const newMessage = {
@@ -68,7 +69,9 @@ const ChatContextProvider = (props)=>{
         chatSessions,setChatSessions,
         saveCurrentChat,
         resumeChat,
-        startNewChat
+        startNewChat,
+        shouldRefetchSessions,
+        setShouldRefetchSessions
     };
     return (
             <ChatContext.Provider value={value}>

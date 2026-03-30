@@ -16,6 +16,16 @@ export default function Signup() {
         e.preventDefault();
         setError("");
 
+        if (!username.trim()) {
+            setError("Username is required");
+            return;
+        }
+
+        if (!email.trim()) {
+            setError("Email is required");
+            return;
+        }
+
         if (password !== confirmPassword) {
             setError("Passwords do not match");
             return;
@@ -29,7 +39,9 @@ export default function Signup() {
         setLoading(true);
 
         try {
+            console.log('Sending signup request...');
             const response = await apiService.signup({ username, email, password });
+            console.log('Signup response:', response.data);
             
             if (response.data.success) {
                 const token = response.data.token;
@@ -43,7 +55,11 @@ export default function Signup() {
                 setError(response.data.message || 'Signup failed');
             }
         } catch (err) {
-            setError(err.response?.data?.message || 'An error occurred during signup');
+            console.error('Signup error:', err);
+            const errorMsg = err.response?.data?.message || 
+                           err.message || 
+                           'An error occurred during signup. Please try again.';
+            setError(errorMsg);
         } finally {
             setLoading(false);
         }

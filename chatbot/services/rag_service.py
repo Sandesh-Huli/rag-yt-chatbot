@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from typing import List, Dict, Any
 import numpy as np
 import faiss
-import sys
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -68,6 +67,13 @@ class RAG:
                     self.query_texts, self.query_metadata = pickle.load(f)
         except Exception as e:
             print("⚠️ Failed to load FAISS indexes:", e)
+    
+    def is_video_indexed(self, video_id: str) -> bool:
+        """Check if a video_id is already indexed in transcript metadata."""
+        for metadata in self.transcript_metadata:
+            if metadata.get("video_id") == video_id:
+                return True
+        return False
         
     def chunk_transcript(self, transcript: List[str]) -> List[str]: 
         """
@@ -90,6 +96,44 @@ class RAG:
         self.transcript_chunks.extend(chunks)
         for _ in chunks:
             self.transcript_metadata.append(meta if meta else {})
+        
+        # Print embedding vectors to console
+        print("\n" + "="*80)
+        print("📊 TRANSCRIPT EMBEDDING VECTORS GENERATED")
+        print("="*80)
+        print(f"Embedding Model: sentence-transformers/all-mpnet-base-v2")
+        print(f"Total Chunks: {len(chunks)}")
+        print(f"Vector Dimensions: {embeddings_np.shape[1]}")
+        print(f"Metadata: {meta}")
+        print("\n" + "-"*80)
+        
+        # Print first 3 embeddings (for readability)
+        num_to_print = min(3, len(chunks))
+        for i in range(num_to_print):
+            print(f"\n📄 Chunk {i+1}/{len(chunks)}:")
+            print(f"Text: \"{chunks[i][:100]}{'...' if len(chunks[i]) > 100 else ''}\"")
+            print(f"\nVector (first 20 dimensions):")
+            vector_sample = embeddings_np[i][:20]
+            for j in range(0, 20, 5):
+                formatted = ", ".join([f"{v:7.4f}" for v in vector_sample[j:j+5]])
+                print(f"  [{j:2d}-{j+4:2d}]: {formatted}")
+            
+            print(f"\nVector Statistics:")
+            print(f"  Min:  {np.min(embeddings_np[i]):8.4f}")
+            print(f"  Max:  {np.max(embeddings_np[i]):8.4f}")
+            print(f"  Mean: {np.mean(embeddings_np[i]):8.4f}")
+            print(f"  Std:  {np.std(embeddings_np[i]):8.4f}")
+            print(f"  Norm: {np.linalg.norm(embeddings_np[i]):8.4f}")
+            
+            if i < num_to_print - 1:
+                print("\n" + "-"*80)
+        
+        if len(chunks) > num_to_print:
+            print(f"\n... ({len(chunks) - num_to_print} more chunks embedded)")
+        
+        print("\n" + "="*80)
+        print(f"✅ All {len(chunks)} embeddings stored in FAISS index")
+        print("="*80 + "\n")
 
     def retrieve_transcript(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Retrieve top_k transcript chunks relevant to query."""
