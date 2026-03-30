@@ -40,6 +40,12 @@ load_dotenv()
 rag = RAG()
 db = DBService()
 
+def extract_response_content(response):
+    """Extract string content from LLM response object or string."""
+    if hasattr(response, "content"):
+        return response.content
+    return str(response)
+
 
 # ---------------- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
@@ -95,7 +101,7 @@ def qa_node(state: AgentState) -> AgentState:
         f"User Question: {state.query}"
     ) 
     tool_decision = get_llm_response(tool_prompt)
-    tool_decision_text = getattr(tool_decision, "content", str(tool_decision)).strip().lower()
+    tool_decision_text = extract_response_content(tool_decision).strip().lower()
     logger.debug(f"Tool decision: {tool_decision_text}")
     if tool_decision_text == "search":
         web_results = web_search_tool.run(state.query)
@@ -114,13 +120,12 @@ def qa_node(state: AgentState) -> AgentState:
             f"User Question: {state.query}"
         )
     result = get_llm_response(prompt)
-    state.result = getattr(result, "content", str(result))
+    state.result = extract_response_content(result)
     # Save query + answer into RAG memory
-    query_text = state.query.content if hasattr(state.query, "content") else str(state.query)
+    query_text = extract_response_content(state.query)
     rag.add_query(query_text, {"role": "user"})
     
-    result_text = state.result.content if hasattr(state.result, "content") else str(state.result)
-    rag.add_query(result_text, {"role": "assistant"})
+    rag.add_query(state.result, {"role": "assistant"})
     
     return state
 
@@ -142,12 +147,11 @@ def summarize_node(state: AgentState) -> AgentState:
     )
     
     result = get_llm_response(prompt)
-    state.result = getattr(result, "content", str(result))
-    query_text = state.query.content if hasattr(state.query, "content") else str(state.query)
+    state.result = extract_response_content(result)
+    query_text = extract_response_content(state.query)
     rag.add_query(query_text, {"role": "user"})
     
-    result_text = state.result.content if hasattr(state.result, "content") else str(state.result)
-    rag.add_query(result_text, {"role": "assistant"})
+    rag.add_query(state.result, {"role": "assistant"})
     return state
 
 def translate_node(state: AgentState) -> AgentState:
@@ -168,12 +172,10 @@ def translate_node(state: AgentState) -> AgentState:
     )
     
     result = get_llm_response(prompt, target_language=state.target_language)
-    state.result = getattr(result, "content", str(result))
+    state.result = extract_response_content(result)
 
     rag.add_query(f"translate video to {state.target_language}", {"role": "user"})
-    # If state.result is an LLM message object, extract the content
-    result_text = state.result.content if hasattr(state.result, "content") else str(state.result)
-    rag.add_query(result_text, {"role": "assistant"})
+    rag.add_query(state.result, {"role": "assistant"})
     return state
 
 def fallback_node(state: AgentState) -> AgentState:
@@ -243,7 +245,7 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     # Save to DB
     db.add_message(session_id,video_id, "user", query)
     
-    assistant_message = answer.content if hasattr(answer, "content") else str(answer)
+    assistant_message = extract_response_content(answer)
     logger.debug(f"Generated response length: {len(assistant_message)} chars")
     db.add_message(session_id,video_id, "assistant", assistant_message)
 
