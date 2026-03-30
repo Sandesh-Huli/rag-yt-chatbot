@@ -73,9 +73,14 @@ chatbot/
 
 2. **Install dependencies**
    
-   **Python dependencies:**
+   **Python dependencies (production):**
    ```sh
    pip install -r requirements.txt
+   ```
+   
+   **Python dependencies (development with testing tools):**
+   ```sh
+   pip install -r requirements.txt -r requirements-dev.txt
    ```
    
    **Backend (Node.js) dependencies:**
