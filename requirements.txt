@@ -1,0 +1,59 @@
+# Core LangChain & LLM Dependencies
+langchain==1.1.0
+langchain-core==1.1.0
+langchain-community==0.4.1
+langchain-experimental==0.4.0
+langchain-google-genai==3.2.0
+langchain-google-community==3.0.1
+langchain-huggingface==1.1.0
+langgraph==1.0.4
+langsmith==0.4.49
+
+# Google Generative AI
+google-generativeai==0.8.5
+google-api-python-client==2.187.0
+google-auth==2.43.0
+google-cloud-core==2.5.0
+
+# Web & API Frameworks
+Flask==3.1.2
+FastAPI==0.123.5
+uvicorn==0.38.0
+starlette==0.50.0
+
+# Data & ML Libraries
+numpy==2.3.4
+pandas==2.3.3
+scipy==1.16.3
+scikit-learn==1.7.2
+pydantic==2.12.4
+pydantic-settings==2.12.0
+
+# Vector Database & Embeddings
+faiss-cpu==1.13.0
+sentence-transformers==5.1.2
+huggingface-hub==0.36.0
+transformers==4.57.1
+
+# YouTube & Search
+youtube-transcript-api==1.2.3
+beautifulsoup4==4.14.2
+
+# Database
+pymongo==4.15.4
+SQLAlchemy==2.0.44
+
+# Configuration & Utilities
+python-dotenv==1.2.1
+requests==2.32.5
+httpx==0.28.1
+
+# Async Support
+aiohttp==3.13.2
+asyncio-contextmanager==1.0.0
+
+# Logging & Error Handling
+python-json-logger==4.0.0
+
+# Optional: PyTorch for embeddings
+torch==2.9.1
