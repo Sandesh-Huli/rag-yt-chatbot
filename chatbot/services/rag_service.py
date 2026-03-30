@@ -5,9 +5,12 @@ Uses LangChain's SemanticChunker for semantic chunking and Gemini embeddings.
 
 import os
 import pickle
+import logging
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 import numpy as np
+
+logger = logging.getLogger(__name__)
 import faiss
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -86,16 +89,20 @@ class RAG:
         """
         Chunks, embeds, and stores transcript data.
         """
-        chunks = self.chunk_transcript(transcript)
-        embeddings = self.embedding_model.embed_documents(chunks)
-        
-        embeddings_np = np.array(embeddings).astype("float32")
-        if self.transcript_index is None:
-            self.transcript_index = faiss.IndexFlatL2(embeddings_np.shape[1])
-        self.transcript_index.add(embeddings_np)
-        self.transcript_chunks.extend(chunks)
-        for _ in chunks:
-            self.transcript_metadata.append(meta if meta else {})
+        try:
+            chunks = self.chunk_transcript(transcript)
+            embeddings = self.embedding_model.embed_documents(chunks)
+            
+            embeddings_np = np.array(embeddings).astype("float32")
+            if self.transcript_index is None:
+                self.transcript_index = faiss.IndexFlatL2(embeddings_np.shape[1])
+            self.transcript_index.add(embeddings_np)
+            self.transcript_chunks.extend(chunks)
+            for _ in chunks:
+                self.transcript_metadata.append(meta if meta else {})
+            self._save_indexes()
+        except Exception as e:
+            raise RuntimeError(f"Error adding transcript to RAG: {str(e)}")
         
         # Print embedding vectors to console
         print("\n" + "="*80)
@@ -137,25 +144,29 @@ class RAG:
 
     def retrieve_transcript(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Retrieve top_k transcript chunks relevant to query."""
-        if self.transcript_index is None or len(self.transcript_chunks) == 0:
-            return []
-        if isinstance(top_k, list):
-            # if accidentally passed as [5] or ["5"]
-            top_k = int(top_k[0])
-        else:
-            top_k = int(top_k)
+        try:
+            if self.transcript_index is None or len(self.transcript_chunks) == 0:
+                return []
+            if isinstance(top_k, list):
+                # if accidentally passed as [5] or ["5"]
+                top_k = int(top_k[0])
+            else:
+                top_k = int(top_k)
 
-        query_emb = np.array(self.embedding_model.embed_query(query)).astype("float32").reshape(1, -1)
-        D, I = self.transcript_index.search(query_emb, top_k)
-        results = []
-        for idx, score in zip(I[0], D[0]):
-            if idx < len(self.transcript_chunks):
-                results.append({
-                    "text": self.transcript_chunks[idx],
-                    "score": float(score),
-                    "metadata": self.transcript_metadata[idx]
-                })
-        return results
+            query_emb = np.array(self.embedding_model.embed_query(query)).astype("float32").reshape(1, -1)
+            D, I = self.transcript_index.search(query_emb, top_k)
+            results = []
+            for idx, score in zip(I[0], D[0]):
+                if idx < len(self.transcript_chunks):
+                    results.append({
+                        "text": self.transcript_chunks[idx],
+                        "score": float(score),
+                        "metadata": self.transcript_metadata[idx]
+                    })
+            return results
+        except Exception as e:
+            logger.error(f"Error retrieving transcript: {str(e)}")
+            return []
 
     def add_query(self, query: str, meta: Dict[str, Any] = None):
         """Embeds and stores chat history messages (user or assistant)."""

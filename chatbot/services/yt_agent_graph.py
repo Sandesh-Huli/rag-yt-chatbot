@@ -51,8 +51,13 @@ def extract_response_content(response):
 # ---------------- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
     logger.info(f"🎬 Fetching transcript for video: {state.video_id}")
-    state.transcript_segments =  fetch_youtube_transcript(state.video_id,state.lang)
-    logger.info(f"✅ Transcript fetched: {len(state.transcript_segments)} segments")
+    try:
+        state.transcript_segments =  fetch_youtube_transcript(state.video_id,state.lang)
+        logger.info(f"✅ Transcript fetched: {len(state.transcript_segments)} segments")
+    except Exception as e:
+        logger.error(f"❌ YouTube API Error: {str(e)}")
+        state.transcript_segments = []
+        state.result = f"Error: Could not fetch transcript - {str(e)}"
     return state
 
 def add_transcript_node(state: AgentState) -> AgentState:
@@ -64,8 +69,12 @@ def add_transcript_node(state: AgentState) -> AgentState:
         return state
     
     logger.info(f"🔄 Adding transcript to RAG for video: {state.video_id}")
-    rag.add_transcript(state.transcript_segments, meta={"video_id": state.video_id})
-    logger.info(f"💾 Transcript embeddings saved to FAISS")
+    try:
+        rag.add_transcript(state.transcript_segments, meta={"video_id": state.video_id})
+        logger.info(f"💾 Transcript embeddings saved to FAISS")
+    except Exception as e:
+        logger.error(f"❌ FAISS/Embedding Error: {str(e)}")
+        state.result = f"Error: Could not process transcript embeddings - {str(e)}"
     return state
 
 
@@ -108,7 +117,11 @@ def qa_node(state: AgentState) -> AgentState:
     tool_decision_text = extract_response_content(tool_decision).strip().lower()
     logger.debug(f"Tool decision: {tool_decision_text}")
     if tool_decision_text == "search":
-        web_results = web_search_tool.run(state.query)
+        try:
+            web_results = web_search_tool.run(state.query)
+        except Exception as e:
+            logger.error(f"❌ Web Search Error: {str(e)}")
+            web_results = "[Web search unavailable]"
         # Safe prompt template for search path
         search_template = PromptTemplate(
             input_variables=["web_results", "history", "query"],
@@ -128,13 +141,20 @@ def qa_node(state: AgentState) -> AgentState:
                      "User Question: {query}"
         )
         prompt = transcript_template.format(transcript=transcript_text, history=history_text, query=state.query)
-    result = get_llm_response(prompt)
-    state.result = extract_response_content(result)
+    try:
+        result = get_llm_response(prompt)
+        state.result = extract_response_content(result)
+    except Exception as e:
+        logger.error(f"❌ LLM API Error: {str(e)}")
+        state.result = f"Error: Could not generate response - {str(e)}"
+        return state
     # Save query + answer into RAG memory
-    query_text = extract_response_content(state.query)
-    rag.add_query(query_text, {"role": "user"})
-    
-    rag.add_query(state.result, {"role": "assistant"})
+    try:
+        query_text = extract_response_content(state.query)
+        rag.add_query(query_text, {"role": "user"})
+        rag.add_query(state.result, {"role": "assistant"})
+    except Exception as e:
+        logger.error(f"❌ RAG Query Storage Error: {str(e)}")
     
     return state
 
@@ -158,12 +178,20 @@ def summarize_node(state: AgentState) -> AgentState:
     )
     prompt = summary_template.format(transcript=transcript_text, history=history_text)
     
-    result = get_llm_response(prompt)
-    state.result = extract_response_content(result)
-    query_text = extract_response_content(state.query)
-    rag.add_query(query_text, {"role": "user"})
+    try:
+        result = get_llm_response(prompt)
+        state.result = extract_response_content(result)
+    except Exception as e:
+        logger.error(f"❌ LLM API Error in summarize: {str(e)}")
+        state.result = f"Error: Could not generate summary - {str(e)}"
+        return state
     
-    rag.add_query(state.result, {"role": "assistant"})
+    try:
+        query_text = extract_response_content(state.query)
+        rag.add_query(query_text, {"role": "user"})
+        rag.add_query(state.result, {"role": "assistant"})
+    except Exception as e:
+        logger.error(f"❌ RAG Query Storage Error in summarize: {str(e)}")
     return state
 
 def translate_node(state: AgentState) -> AgentState:
@@ -186,11 +214,19 @@ def translate_node(state: AgentState) -> AgentState:
     )
     prompt = translate_template.format(target_language=state.target_language, transcript=transcript_text, history=history_text)
     
-    result = get_llm_response(prompt, target_language=state.target_language)
-    state.result = extract_response_content(result)
+    try:
+        result = get_llm_response(prompt, target_language=state.target_language)
+        state.result = extract_response_content(result)
+    except Exception as e:
+        logger.error(f"❌ LLM API Error in translate: {str(e)}")
+        state.result = f"Error: Could not generate translation - {str(e)}"
+        return state
 
-    rag.add_query(f"translate video to {state.target_language}", {"role": "user"})
-    rag.add_query(state.result, {"role": "assistant"})
+    try:
+        rag.add_query(f"translate video to {state.target_language}", {"role": "user"})
+        rag.add_query(state.result, {"role": "assistant"})
+    except Exception as e:
+        logger.error(f"❌ RAG Query Storage Error in translate: {str(e)}")
     return state
 
 def fallback_node(state: AgentState) -> AgentState:
