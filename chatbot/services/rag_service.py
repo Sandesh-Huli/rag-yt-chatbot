@@ -15,7 +15,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from chatbot.services.transcript_service import fetch_youtube_transcript
 
 class RAG:
-    def __init__(self,chunk_size: int =100 , chunk_overlap: int = 30, persist_dir: str = "./rag_store"):
+    def __init__(self, persist_dir: str = "./rag_store"):
         load_dotenv()
         self.embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/all-mpnet-base-v2",
