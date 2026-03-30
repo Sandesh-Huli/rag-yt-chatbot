@@ -265,6 +265,11 @@ yt_agent_graph = graph.compile()
 
 def run_query(session_id: str, video_id: str, query: str) -> str:
     logger.info(f"Running query for video: {video_id}, session: {session_id}")
+    
+    # Load memory state (includes conversation summary if any)
+    memory_state = db.get_memory_state(session_id, video_id)
+    logger.debug(f"Loaded memory state: {memory_state}")
+    
     # Load previous history for this session
     history = db.get_chat_history(session_id) or []
     # Format history into messages for the LLM
@@ -273,6 +278,12 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
         for msg in history.messages:
             role = msg.role
             content = msg.message
+            # Include conversation summary if available (prepend as context)
+            if memory_state and memory_state.get("conversation_summary") and role == "user" and not history_msgs:
+                history_msgs.append({
+                    "role": "system",
+                    "content": f"[Previous conversation summary]: {memory_state.get('conversation_summary')}"
+                })
             history_msgs.append({"role": role, "content": content})
     # Add the new user query
     history_msgs.append({"role": "user", "content": query})
@@ -301,6 +312,20 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     db.add_message(session_id,video_id, "assistant", assistant_message)
 
     rag.add_query(assistant_message,{"role":"assistant"})
+    
+    # Check memory and prune if needed (only original messages summarized)
+    try:
+        updated_memory_state = rag.check_and_prune_memory(
+            db_service=db,
+            session_id=session_id,
+            video_id=video_id,
+            max_messages=15,
+            summary_threshold=20
+        )
+        if updated_memory_state:
+            logger.info(f"Memory state updated: {len(rag.query_texts)} total messages in RAG")
+    except Exception as e:
+        logger.warning(f"⚠️ Memory pruning skipped: {str(e)}")
     
     return assistant_message
 

@@ -179,6 +179,76 @@ class RAG:
         self.query_texts.append(query)
         self.query_metadata.append(meta if meta else {})
 
+    def check_and_prune_memory(self, db_service, session_id: str, video_id: str, 
+                               max_messages: int = 15, summary_threshold: int = 20):
+        """
+        Check if chat memory exceeds threshold and prune/summarize old messages.
+        Only summarizes ORIGINAL messages (is_original=True), never re-summarizes.
+        """
+        try:
+            from chatbot.models.llm import get_llm_response
+            from datetime import datetime
+            
+            message_count = len(self.query_texts)
+            
+            # If total messages exceed summary threshold
+            if message_count > summary_threshold:
+                # Get original messages from DB
+                original_msgs = db_service.get_original_messages(session_id, from_index=0)
+                
+                if original_msgs and len(original_msgs) > max_messages:
+                    # Extract messages to summarize (first N-max_messages indices)
+                    messages_to_summarize = original_msgs[:len(original_msgs) - max_messages]
+                    
+                    # Build text for LLM summarization (only original messages)
+                    text_to_summarize = "\n".join([
+                        f"{role}: {msg.get('message', '')}" 
+                        for idx, msg in messages_to_summarize
+                        for role in [msg.get('role', 'unknown')]
+                        if msg.get('is_original', True)
+                    ])
+                    
+                    if text_to_summarize.strip():
+                        # Summarize using LLM
+                        try:
+                            summary_prompt = f"Briefly summarize this conversation in 2-3 sentences:\n\n{text_to_summarize}"
+                            summary = get_llm_response(summary_prompt)
+                            summary_text = summary.content if hasattr(summary, "content") else str(summary)
+                            
+                            # Get indices of messages to delete
+                            indices_to_delete = [idx for idx, _ in messages_to_summarize]
+                            
+                            # Save summary to DB and mark as non-original
+                            db_service.mark_message_as_summary(
+                                session_id, 
+                                f"[SUMMARY] {summary_text}", 
+                                indices_to_delete
+                            )
+                            
+                            # Delete old messages from DB
+                            db_service.delete_messages_by_index(session_id, indices_to_delete)
+                            
+                            # Update memory state
+                            memory_state = {
+                                "conversation_summary": summary_text,
+                                "total_messages_processed": message_count,
+                                "active_window_start_index": len(messages_to_delete),
+                                "last_summarization_index": max(indices_to_delete) if indices_to_delete else 0,
+                                "last_summarized_at": datetime.utcnow()
+                            }
+                            db_service.save_memory_state(session_id, video_id, memory_state)
+                            
+                            logger.info(f"✅ Summarized {len(messages_to_summarize)} original messages, keeping last {max_messages}")
+                        except Exception as e:
+                            logger.error(f"Error during summarization: {str(e)}")
+            
+            # Return current memory state
+            return db_service.get_memory_state(session_id, video_id)
+            
+        except Exception as e:
+            logger.error(f"Error in check_and_prune_memory: {str(e)}")
+            return None
+
     def retrieve_queries(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Retrieve semantically relevant chat history messages."""
         if self.query_index is None or len(self.query_texts) == 0:

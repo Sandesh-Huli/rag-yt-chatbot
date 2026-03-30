@@ -127,6 +127,99 @@ class DBService:
         
         result = self.chat_history.delete_many(query)
         return result
+
+    # Memory Management Methods (for conversation summarization & sliding window)
+    def save_memory_state(self, session_id: str, video_id: str, memory_state: dict):
+        """Save memory window state and conversation summary"""
+        self.chat_history.update_one(
+            {"session_id": session_id, "video_id": video_id},
+            {
+                "$set": {
+                    "memory_state": {
+                        "conversation_summary": memory_state.get("conversation_summary", ""),
+                        "total_messages_processed": memory_state.get("total_messages_processed", 0),
+                        "active_window_start_index": memory_state.get("active_window_start_index", 0),
+                        "last_summarization_index": memory_state.get("last_summarization_index", 0),
+                        "last_summarized_at": memory_state.get("last_summarized_at", datetime.utcnow())
+                    },
+                    "last_updated": datetime.utcnow()
+                }
+            },
+            upsert=True
+        )
+
+    def get_memory_state(self, session_id: str, video_id: str):
+        """Get memory window state and conversation summary"""
+        doc = self.chat_history.find_one({"session_id": session_id, "video_id": video_id})
+        if doc and "memory_state" in doc:
+            return doc["memory_state"]
+        return {
+            "conversation_summary": "",
+            "total_messages_processed": 0,
+            "active_window_start_index": 0,
+            "last_summarization_index": 0,
+            "last_summarized_at": datetime.utcnow()
+        }
+
+    def mark_messages_as_original(self, session_id: str, start_index: int, end_index: int):
+        """Mark messages in range as original (not summarized)"""
+        doc = self.chat_history.find_one({"session_id": session_id})
+        if doc and "messages" in doc:
+            for i in range(start_index, min(end_index, len(doc["messages"]))):
+                if i >= 0:
+                    self.chat_history.update_one(
+                        {"session_id": session_id},
+                        {
+                            "$set": {
+                                f"messages.{i}.is_original": True,
+                                f"messages.{i}.summarized_from_indices": []
+                            }
+                        }
+                    )
+
+    def mark_message_as_summary(self, session_id: str, new_message: str, summarized_from_indices: list):
+        """Add a summary message and mark it as non-original"""
+        msg = MessageModel(role="system", message=new_message).dict()
+        msg["is_original"] = False  # Mark as summarized
+        msg["summarized_from_indices"] = summarized_from_indices
+        
+        self.chat_history.update_one(
+            {"session_id": session_id},
+            {
+                "$push": {"messages": msg},
+                "$set": {"last_updated": datetime.utcnow()}
+            }
+        )
+
+    def get_original_messages(self, session_id: str, from_index: int = 0) -> List[dict]:
+        """Get only original messages (not summaries) from specified index"""
+        doc = self.chat_history.find_one({"session_id": session_id})
+        if not doc or "messages" not in doc:
+            return []
+        
+        messages = doc["messages"]
+        original_messages = [
+            (i, msg) for i, msg in enumerate(messages[from_index:], start=from_index)
+            if msg.get("is_original", True)  # Default to True for backward compatibility
+        ]
+        return original_messages
+
+    def delete_messages_by_index(self, session_id: str, indices_to_delete: list):
+        """Delete messages by their indices (used after summarization)"""
+        doc = self.chat_history.find_one({"session_id": session_id})
+        if doc and "messages" in doc:
+            # Keep messages NOT in the deletion list
+            messages = doc["messages"]
+            messages_to_keep = [msg for i, msg in enumerate(messages) if i not in indices_to_delete]
+            self.chat_history.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "messages": messages_to_keep,
+                        "last_updated": datetime.utcnow()
+                    }
+                }
+            )
     
     # User methods
     def create_user(self, email: str, username: str, hashed_password: str):
