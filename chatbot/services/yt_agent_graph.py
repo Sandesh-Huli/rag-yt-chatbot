@@ -9,6 +9,7 @@ from chatbot.services.db_service import DBService
 from chatbot.parsers.orchestrator_parser import structured_llm, Orchestrator
 from chatbot.tools.web_search import web_search
 from langchain_core.tools import Tool
+from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
 import logging
 
@@ -93,32 +94,40 @@ def qa_node(state: AgentState) -> AgentState:
     if state.history:
         history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
         
-    tool_prompt = (
-        "You are a helpful assistant. If the answer is not in the transcript or chat history, "
-        "respond ONLY with the word 'search' (no punctuation). Otherwise, respond with the word 'not needed'.\n\n"
-        f"Transcript:\n{transcript_text}\n\n"
-        f"Chat History:\n{history_text}\n\n"
-        f"User Question: {state.query}"
-    ) 
+    # Safe prompt template to prevent injection
+    tool_template = PromptTemplate(
+        input_variables=["transcript", "history", "query"],
+        template="You are a helpful assistant. If the answer is not in the transcript or chat history, "
+                 "respond ONLY with the word 'search' (no punctuation). Otherwise, respond with the word 'not needed'.\n\n"
+                 "Transcript:\n{transcript}\n\n"
+                 "Chat History:\n{history}\n\n"
+                 "User Question: {query}"
+    )
+    tool_prompt = tool_template.format(transcript=transcript_text, history=history_text, query=state.query)
     tool_decision = get_llm_response(tool_prompt)
     tool_decision_text = extract_response_content(tool_decision).strip().lower()
     logger.debug(f"Tool decision: {tool_decision_text}")
     if tool_decision_text == "search":
         web_results = web_search_tool.run(state.query)
-        prompt = (
-            "You are a helpful assistant. Use the following web search results and previous chat history to answer the user's question.\n\n"
-            f"Web Search Results:\n{web_results}\n\n"
-            f"Chat History:\n{history_text}\n\n"
-            f"User Question: {state.query}"
+        # Safe prompt template for search path
+        search_template = PromptTemplate(
+            input_variables=["web_results", "history", "query"],
+            template="You are a helpful assistant. Use the following web search results and previous chat history to answer the user's question.\n\n"
+                     "Web Search Results:\n{web_results}\n\n"
+                     "Chat History:\n{history}\n\n"
+                     "User Question: {query}"
         )
+        prompt = search_template.format(web_results=web_results, history=history_text, query=state.query)
     else:
-    # Build the prompt for the agent
-        prompt = (
-            "You are a helpful assistant. Use the following transcript and previous chat history to answer the user's question.\n\n"
-            f"Transcript:\n{transcript_text}\n\n"
-            f"Chat History:\n{history_text}\n\n"
-            f"User Question: {state.query}"
+    # Safe prompt template for transcript path
+        transcript_template = PromptTemplate(
+            input_variables=["transcript", "history", "query"],
+            template="You are a helpful assistant. Use the following transcript and previous chat history to answer the user's question.\n\n"
+                     "Transcript:\n{transcript}\n\n"
+                     "Chat History:\n{history}\n\n"
+                     "User Question: {query}"
         )
+        prompt = transcript_template.format(transcript=transcript_text, history=history_text, query=state.query)
     result = get_llm_response(prompt)
     state.result = extract_response_content(result)
     # Save query + answer into RAG memory
@@ -139,12 +148,15 @@ def summarize_node(state: AgentState) -> AgentState:
     if state.history:
         history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
         
-    prompt = (
-        "You are a helpful assistant. Summarize the following YouTube video transcript, considering the previous chat history for context.\n\n"
-        f"Transcript:\n{transcript_text}\n\n"
-        f"Chat History:\n{history_text}\n\n"
-        "Summary:"
+    # Safe prompt template to prevent injection
+    summary_template = PromptTemplate(
+        input_variables=["transcript", "history"],
+        template="You are a helpful assistant. Summarize the following YouTube video transcript, considering the previous chat history for context.\n\n"
+                 "Transcript:\n{transcript}\n\n"
+                 "Chat History:\n{history}\n\n"
+                 "Summary:"
     )
+    prompt = summary_template.format(transcript=transcript_text, history=history_text)
     
     result = get_llm_response(prompt)
     state.result = extract_response_content(result)
@@ -164,12 +176,15 @@ def translate_node(state: AgentState) -> AgentState:
     if state.history:
         history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
 
-    prompt = (
-        f"You are a helpful assistant. Translate the following YouTube video transcript into {state.target_language}, considering the previous chat history for context.\n\n"
-        f"Transcript:\n{transcript_text}\n\n"
-        f"Chat History:\n{history_text}\n\n"
-        f"Translation:\n({state.target_language})"
+    # Safe prompt template to prevent injection
+    translate_template = PromptTemplate(
+        input_variables=["target_language", "transcript", "history"],
+        template="You are a helpful assistant. Translate the following YouTube video transcript into {target_language}, considering the previous chat history for context.\n\n"
+                 "Transcript:\n{transcript}\n\n"
+                 "Chat History:\n{history}\n\n"
+                 "Translation:\n({target_language})"
     )
+    prompt = translate_template.format(target_language=state.target_language, transcript=transcript_text, history=history_text)
     
     result = get_llm_response(prompt, target_language=state.target_language)
     state.result = extract_response_content(result)
