@@ -3,12 +3,10 @@ LLM utility for generating responses using Gemini 2.5 Flash (Google Generative A
 """
 
 import os
-from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 class LLM:
     def __init__(self):
-        load_dotenv()
         api_key = os.getenv('GOOGLE_API_KEY')
         if not api_key:
             raise ValueError("GOOGLE_API_KEY environment variable not set")

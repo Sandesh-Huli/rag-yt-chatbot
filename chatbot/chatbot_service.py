@@ -39,6 +39,21 @@ if missing_vars:
 
 logger.info('✅ Environment variables validated successfully')
 
+# Additional startup validation for security
+jwt_secret = os.getenv('JWT_SECRET', '')
+if len(jwt_secret) < 32:
+    logger.error('❌ Error: JWT_SECRET must be at least 32 characters long')
+    logger.error('   Generate a strong secret with: python -c "import secrets; print(secrets.token_urlsafe(32))"')
+    sys.exit(1)
+
+session_secret = os.getenv('SESSION_SECRET', '')
+if len(session_secret) < 32:
+    logger.error('❌ Error: SESSION_SECRET must be at least 32 characters long')
+    logger.error('   Generate a strong secret with: python -c "import secrets; print(secrets.token_urlsafe(32))"')
+    sys.exit(1)
+
+logger.info('✅ Security validation passed: JWT and session secrets are strong')
+
 class NewChatRequest(BaseModel):
     video_id: str = Field(..., description="YouTube video ID (11 characters)")
     query: str = Field(..., min_length=1, max_length=5000, description="User query (1-5000 characters)")

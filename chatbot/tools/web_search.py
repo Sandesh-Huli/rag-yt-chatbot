@@ -1,4 +1,3 @@
-from dotenv import load_dotenv
 from langchain_google_community import GoogleSearchAPIWrapper
 import logging
 
@@ -10,7 +9,6 @@ def web_search(query : str, count : int = 3):
     Returns error message if search fails.
     """
     try:
-        load_dotenv()
         search = GoogleSearchAPIWrapper(k=count)
         response = search.run(query=query)
         if not response:

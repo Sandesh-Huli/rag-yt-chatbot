@@ -1,8 +1,10 @@
 from pydantic import BaseModel, Field
 from typing import Literal
 import os
-from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
+import logging
+
+logger = logging.getLogger(__name__)
 
 class Orchestrator(BaseModel):
     mode: Literal["qa", "summarize", "translate", "fallback"] = Field(
@@ -14,7 +16,10 @@ def structured_llm(query: str) -> Orchestrator:
     Uses Gemini's structured output to determine the orchestration mode.
     Returns a properly parsed Orchestrator object.
     """
-    load_dotenv()
+    # Query length validation to prevent token exhaustion
+    if len(query) > 1000:
+        logger.warning(f"Query exceeds recommended length (1000 chars): {len(query)} chars")
+        raise ValueError(f"Query too long: maximum 1000 characters allowed, got {len(query)}")
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
         raise ValueError("GOOGLE_API_KEY environment variable not set")
