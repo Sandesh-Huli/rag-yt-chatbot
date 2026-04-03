@@ -3,6 +3,7 @@ LLM utility for generating responses using Gemini 2.5 Flash (Google Generative A
 """
 
 import os
+from chatbot.config import LLM_MODEL, LLM_TEMPERATURE
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 class LLM:
@@ -11,9 +12,9 @@ class LLM:
         if not api_key:
             raise ValueError("GOOGLE_API_KEY environment variable not set")
         self.llm = ChatGoogleGenerativeAI(
-            model='gemini-2.5-flash',
+            model=LLM_MODEL,
             api_key=api_key,
-            temperature=0
+            temperature=LLM_TEMPERATURE
         )
 
 def get_llm_response(prompt: str, target_language: str = None) -> str:

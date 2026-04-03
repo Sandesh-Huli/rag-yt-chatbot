@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Literal
 import os
+from chatbot.config import LLM_MODEL, LLM_TEMPERATURE, ORCHESTRATOR_QUERY_MAX_LENGTH
 from langchain_google_genai import ChatGoogleGenerativeAI
 import logging
 
@@ -17,17 +18,17 @@ def structured_llm(query: str) -> Orchestrator:
     Returns a properly parsed Orchestrator object.
     """
     # Query length validation to prevent token exhaustion
-    if len(query) > 1000:
-        logger.warning(f"Query exceeds recommended length (1000 chars): {len(query)} chars")
-        raise ValueError(f"Query too long: maximum 1000 characters allowed, got {len(query)}")
+    if len(query) > ORCHESTRATOR_QUERY_MAX_LENGTH:
+        logger.warning(f"Query exceeds recommended length ({ORCHESTRATOR_QUERY_MAX_LENGTH} chars): {len(query)} chars")
+        raise ValueError(f"Query too long: maximum {ORCHESTRATOR_QUERY_MAX_LENGTH} characters allowed, got {len(query)}")
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
         raise ValueError("GOOGLE_API_KEY environment variable not set")
     
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model=LLM_MODEL,
         api_key=api_key,
-        temperature=0
+        temperature=LLM_TEMPERATURE
     )
     
     # Use structured output with Pydantic model

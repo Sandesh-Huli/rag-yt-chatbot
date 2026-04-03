@@ -2,6 +2,7 @@ from chatbot.services.transcript_service import fetch_youtube_transcript
 from chatbot.models.llm import get_llm_response
 from chatbot.services.rag_service import RAG
 from chatbot.services.cache_manager import video_cache_manager, session_cache_manager
+from chatbot.config import RETRIEVAL_TOP_K
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Literal
 import uuid, json, re
@@ -11,7 +12,6 @@ from chatbot.parsers.orchestrator_parser import structured_llm, Orchestrator
 from chatbot.tools.web_search import web_search
 from langchain_core.tools import Tool
 from langchain_core.prompts import PromptTemplate
-from dotenv import load_dotenv
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class AgentState:
     video_id: str
     query: str
     lang: str = "en"
-    top_k: int = 3
+    top_k: int = RETRIEVAL_TOP_K
     target_language: str = "en"
     transcript_segments: Optional[List[str]] = field(default=None)
     retrieved_chunks: Optional[List[Dict[str, Any]]] = field(default=None)
@@ -37,10 +37,7 @@ class AgentState:
     result: Optional[str] = None
     history: Optional[List[Dict[str,str]]] = field(default=None)
 
-# ---------------- Setup ----------------
-load_dotenv()
-# Two-tier cache: video_id → FAISS index, session_id → chat memory
-# Removed global RAG instance; now using cache managers for thread-safe concurrent access
+# --------------- Setup ---------------
 db = DBService()
 
 def extract_response_content(response):

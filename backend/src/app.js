@@ -24,15 +24,20 @@ app.use(cors({
 }));
 app.use(cookieParser())
 
+// Session configuration with env variables
+const sessionMaxAge = parseInt(process.env.SESSION_MAX_AGE || '604800000');  // 1 week in ms
+const sessionSecure = process.env.SESSION_SECURE === 'true';  // false for dev, true for production HTTPS
+const sessionSameSite = process.env.SESSION_SAME_SITE || 'lax';
+
 app.use(session({
     secret:process.env.SESSION_SECRET,
     resave:false,
     saveUninitialized:false,
     cookie:{
         httpOnly:true,
-        secure:false,
-        maxAge: 1000 * 60 * 60 * 24 * 7,    //1 week
-        sameSite:"lax"
+        secure:sessionSecure,
+        maxAge: sessionMaxAge,
+        sameSite:sessionSameSite
     }
 }));
 app.use('/chats',chatRoutes)
