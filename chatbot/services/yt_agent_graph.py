@@ -1,6 +1,7 @@
 from chatbot.services.transcript_service import fetch_youtube_transcript
 from chatbot.models.llm import get_llm_response
 from chatbot.services.rag_service import RAG
+from chatbot.services.cache_manager import video_cache_manager, session_cache_manager
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Literal
 import uuid, json, re
@@ -38,7 +39,8 @@ class AgentState:
 
 # ---------------- Setup ----------------
 load_dotenv()
-rag = RAG()
+# Two-tier cache: video_id → FAISS index, session_id → chat memory
+# Removed global RAG instance; now using cache managers for thread-safe concurrent access
 db = DBService()
 
 def extract_response_content(response):
@@ -64,13 +66,16 @@ def add_transcript_node(state: AgentState) -> AgentState:
     if not state.transcript_segments:
         raise RuntimeError("No transcript loaded. Please fetch transcript first.")
     
-    if rag.is_video_indexed(state.video_id):
+    # Get or create video cache for this video_id
+    video_cache = video_cache_manager.get_video_cache(state.video_id)
+    
+    if video_cache.is_indexed():
         logger.info(f"✅ Transcript already indexed for video: {state.video_id}")
         return state
     
-    logger.info(f"🔄 Adding transcript to RAG for video: {state.video_id}")
+    logger.info(f"🔄 Adding transcript to video cache for video: {state.video_id}")
     try:
-        rag.add_transcript(state.transcript_segments, meta={"video_id": state.video_id})
+        video_cache.add_transcript(state.transcript_segments, metadata={"video_id": state.video_id})
         logger.info(f"💾 Transcript embeddings saved to FAISS")
     except Exception as e:
         logger.error(f"❌ FAISS/Embedding Error: {str(e)}")
@@ -148,13 +153,14 @@ def qa_node(state: AgentState) -> AgentState:
         logger.error(f"❌ LLM API Error: {str(e)}")
         state.result = f"Error: Could not generate response - {str(e)}"
         return state
-    # Save query + answer into RAG memory
+    # Save query + answer into session cache (per-session memory)
     try:
+        session_cache = session_cache_manager.get_session_cache(state.session_id)
         query_text = extract_response_content(state.query)
-        rag.add_query(query_text, {"role": "user"})
-        rag.add_query(state.result, {"role": "assistant"})
+        session_cache.add_message(query_text, {"role": "user"})
+        session_cache.add_message(state.result, {"role": "assistant"})
     except Exception as e:
-        logger.error(f"❌ RAG Query Storage Error: {str(e)}")
+        logger.error(f"❌ Session Memory Storage Error: {str(e)}")
     
     return state
 
@@ -289,7 +295,6 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     history_msgs.append({"role": "user", "content": query})
     logger.debug(f"History messages count: {len(history_msgs)}")
 
-    rag.add_query(query,{"role":"user"})
     # Run the graph
     state = AgentState(
         session_id=session_id,
@@ -305,32 +310,80 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     answer = final_state["result"]
 
     # Save to DB
-    db.add_message(session_id,video_id, "user", query)
+    db.add_message(session_id, video_id, "user", query)
     
     assistant_message = extract_response_content(answer)
     logger.debug(f"Generated response length: {len(assistant_message)} chars")
-    db.add_message(session_id,video_id, "assistant", assistant_message)
+    db.add_message(session_id, video_id, "assistant", assistant_message)
 
-    rag.add_query(assistant_message,{"role":"assistant"})
+    # Note: Messages are also stored in session cache (via qa_node) for isolation
+    # The session cache acts as a per-session memory store separate from DB
     
     # Check memory and prune if needed (only original messages summarized)
     try:
-        updated_memory_state = rag.check_and_prune_memory(
+        # Get session cache to access memory metrics
+        session_cache = session_cache_manager.get_session_cache(session_id)
+        message_count = session_cache.get_message_count()
+        logger.debug(f"Session cache has {message_count} messages")
+        
+        # Prune via database (maintains original messages filtering)
+        updated_memory_state = db.check_and_prune_memory(
             db_service=db,
             session_id=session_id,
             video_id=video_id,
             max_messages=15,
             summary_threshold=20
-        )
+        ) if hasattr(db, 'check_and_prune_memory') else None
+        
         if updated_memory_state:
-            logger.info(f"Memory state updated: {len(rag.query_texts)} total messages in RAG")
+            logger.info(f"Memory state updated: {message_count} total messages in session cache")
     except Exception as e:
         logger.warning(f"⚠️ Memory pruning skipped: {str(e)}")
     
     return assistant_message
 
 
-# ---------------- Main Loop ----------------
+# ============= SESSION & VIDEO CLEANUP FUNCTIONS =============
+
+def cleanup_session(session_id: str) -> bool:
+    """Clean up session memory from cache when user logs out or session expires."""
+    success = session_cache_manager.cleanup_session(session_id)
+    logger.info(f"Session cleanup: {session_id} - {'success' if success else 'not found'}")
+    return success
+
+
+def cleanup_video(video_id: str) -> bool:
+    """Clean up video index from cache when no longer needed."""
+    success = video_cache_manager.cleanup_video(video_id)
+    logger.info(f"Video cleanup: {video_id} - {'success' if success else 'not found'}")
+    return success
+
+
+def cleanup_expired_sessions(days: int = 1) -> int:
+    """Periodically clean up expired sessions (default: inactive > 1 day)."""
+    count = session_cache_manager.cleanup_expired_sessions(days=days)
+    logger.info(f"Cleaned up {count} expired sessions")
+    return count
+
+
+def cleanup_expired_videos(days: int = 7) -> int:
+    """Periodically clean up expired video caches (default: not accessed > 7 days)."""
+    count = video_cache_manager.cleanup_expired_videos(days=days)
+    logger.info(f"Cleaned up {count} expired video caches")
+    return count
+
+
+def get_video_cache_stats() -> Dict[str, Any]:
+    """Get statistics about video cache usage."""
+    return video_cache_manager.get_cache_stats()
+
+
+def get_session_cache_stats() -> Dict[str, Any]:
+    """Get statistics about session cache usage."""
+    return session_cache_manager.get_cache_stats()
+
+
+# ============= MAIN LOOP =============
 if __name__ == "__main__":
     # Ask once for thread_id + video_id, then continue chat loop
     session_id = input("Enter session_id (leave blank for new): ").strip() or str(uuid.uuid4())
