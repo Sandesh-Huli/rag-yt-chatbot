@@ -3,6 +3,76 @@ from datetime import datetime
 from typing import List, Optional
 from pydantic import BaseModel, Field
 import os
+import threading
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# ============= MongoDB Singleton Connection Pool =============
+class MongoDBClientSingleton:
+    """
+    Thread-safe singleton for MongoDB connection pooling.
+    Ensures only one MongoClient instance is created and reused across the application.
+    
+    Configuration:
+    - maxPoolSize=50: Handle up to 50 concurrent requests
+    - minPoolSize=10: Keep 10 idle connections ready
+    - waitQueueTimeoutMS=10000: Timeout for connection queue
+    - serverSelectionTimeoutMS=5000: Initial connection timeout
+    """
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialize()
+        return cls._instance
+    
+    def _initialize(self):
+        """Initialize MongoDB connection once."""
+        try:
+            mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+            
+            # Connection pool configuration
+            self.client = MongoClient(
+                mongo_uri,
+                maxPoolSize=50,              # Max concurrent connections
+                minPoolSize=10,              # Min idle connections
+                waitQueueTimeoutMS=10000,    # Queue timeout
+                serverSelectionTimeoutMS=5000,  # Connection timeout
+                retryWrites=True,            # Automatic retry on transient errors
+                w=1,                         # Write concern
+            )
+            
+            # Verify connection
+            self.client.admin.command('ping')
+            logger.info("✅ MongoDB connection pool initialized (maxPoolSize=50, minPoolSize=10)")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize MongoDB connection: {e}")
+            raise
+    
+    def get_client(self) -> MongoClient:
+        """Get the MongoDB client instance."""
+        return self.client
+    
+    def disconnect(self):
+        """Gracefully disconnect from MongoDB."""
+        if self.client:
+            try:
+                self.client.close()
+                logger.info("🗑️ MongoDB connection pool closed")
+            except Exception as e:
+                logger.error(f"Error closing MongoDB connection: {e}")
+
+
+# Global singleton instance
+_mongo_singleton = MongoDBClientSingleton()
+
 
 # Pydantic models
 class TranscriptModel(BaseModel):
@@ -32,8 +102,8 @@ class ChatHistoryModel(BaseModel):
     
 class DBService:
     def __init__(self):
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-        self.client = MongoClient(mongo_uri)
+        # Use singleton MongoDB connection pool instead of creating new clients
+        self.client = _mongo_singleton.get_client()
         self.db = self.client["yt_chatbot"]
         self.transcripts = self.db["transcripts"]
         self.chat_history = self.db["chat_history"]
@@ -249,5 +319,9 @@ class DBService:
         except:
             pass
         return None
+    
+    def disconnect(self):
+        """Gracefully disconnect from MongoDB connection pool."""
+        _mongo_singleton.disconnect()
         
 
