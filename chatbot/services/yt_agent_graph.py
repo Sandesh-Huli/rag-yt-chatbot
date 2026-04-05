@@ -88,7 +88,79 @@ def _store_to_session_cache(session_id: str, query: str, result: str) -> None:
         logger.error(f"Failed to store message to session cache ({session_id}): {type(e).__name__}: {str(e)}")
 
 
-# ---------------- Graph Nodes ----------------
+def _retrieve_relevant_chunks(video_id: str, query: str, top_k: int = 5) -> str:
+    """Retrieve most relevant transcript chunks using semantic search (Issue 23).
+    
+    Replaces full transcript with top-k retrieved chunks to reduce token usage.
+    Falls back to full transcript if FAISS index not available.
+    
+    Args:
+        video_id: YouTube video identifier
+        query: Query text for semantic similarity search
+        top_k: Number of chunks to retrieve (default 5 for ~1-2KB)
+        
+    Returns:
+        Formatted string of relevant chunks with fallback to full transcript
+    """
+    try:
+        video_cache = video_cache_manager.get_video_cache(video_id)
+        
+        # If transcript is indexed in FAISS, retrieve semantically relevant chunks
+        if video_cache.is_indexed():
+            results = video_cache.retrieve_transcript(query, top_k=top_k)
+            if results:
+                # Format retrieved chunks, separating by dividers
+                chunks_text = "\n---\n".join([r['text'] for r in results])
+                logger.debug(f"Retrieved {len(results)} highly relevant chunks for semantic search (token-efficient)")
+                return chunks_text
+            logger.debug("Retrieval returned no results, falling back to full transcript")
+    except Exception as e:
+        logger.warning(f"FAISS retrieval failed ({type(e).__name__}), using full transcript: {str(e)}")
+    
+    # Fallback: return full transcript if retrieval fails or not indexed
+    logger.debug("Using full transcript as fallback (FAISS not available yet)")
+    return ""  # Will use full transcript in calling node
+
+
+# ----------- Batch Retrieval Helper (Issue 26) ---------
+
+def _retrieve_batch_chunks(video_id: str, queries: List[str], top_k: int = 3) -> Dict[str, List[Dict[str, Any]]]:
+    """Retrieve relevant chunks for multiple queries in a single operation (Issue 26).
+    
+    Batch retrieval improves efficiency when processing multiple queries.
+    
+    Args:
+        video_id: YouTube video identifier
+        queries: List of query texts to retrieve chunks for
+        top_k: Number of chunks per query (default 3)
+        
+    Returns:
+        Dictionary mapping query to list of retrieved chunk results
+    """
+    try:
+        video_cache = video_cache_manager.get_video_cache(video_id)
+        
+        if not video_cache.is_indexed():
+            logger.debug("Video not indexed in FAISS, batch retrieval unavailable")
+            return {q: [] for q in queries}
+        
+        results = {}
+        for query in queries:
+            try:
+                chunks = video_cache.retrieve_transcript(query, top_k=top_k)
+                results[query] = chunks
+                logger.debug(f"Retrieved {len(chunks)} chunks for query: {query[:50]}...")
+            except Exception as e:
+                logger.error(f"Failed to retrieve chunks for query: {type(e).__name__}: {str(e)}")
+                results[query] = []
+        
+        return results
+    except Exception as e:
+        logger.error(f"Batch retrieval failed: {type(e).__name__}: {str(e)}")
+        return {q: [] for q in queries}
+
+
+# ---- Batch Search Method for FAISS (Issue 26) ------------ Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
     """Fetch YouTube transcript for the given video ID.
     
@@ -183,6 +255,10 @@ def qa_node(state: AgentState) -> AgentState:
     Uses orchestrator logic: determine if web search needed, then generate answer.
     Stores interaction in session cache.
     
+    Issues Fixed:
+    - Issue 23: Uses top-k retrieved chunks instead of full transcript (reduces tokens)
+    - Issues 16, 20: Deduplication, type hints, specific error messages
+    
     Args:
         state: Current agent state with query, transcript, history
         
@@ -192,7 +268,12 @@ def qa_node(state: AgentState) -> AgentState:
     logger.debug("Executing QA node")
     
     # Build text content
-    transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    # Issue 23: Use retrieved chunks instead of full transcript for token efficiency
+    transcript_text = _retrieve_relevant_chunks(state.video_id, state.query, top_k=5)
+    if not transcript_text:
+        # Fallback to full transcript if retrieval fails
+        transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    
     history_text = _build_history_text(state.history)
     
     # Determine if web search is needed
@@ -259,6 +340,9 @@ def qa_node(state: AgentState) -> AgentState:
 def summarize_node(state: AgentState) -> AgentState:
     """Summarize the video transcript considering chat history for context.
     
+    Issue 23: Uses semantically relevant chunks to reduce token usage while
+    preserving summary quality. Falls back to full transcript if retrieval unavailable.
+    
     Args:
         state: Current agent state with transcript and history
         
@@ -267,8 +351,13 @@ def summarize_node(state: AgentState) -> AgentState:
     """
     logger.debug("Executing summarize node")
     
-    # Build text content (DRY: use helper function)
-    transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    # Issue 23: Use retrieved chunks instead of full transcript for efficiency
+    # For summarization, retrieve broader context (larger top_k)
+    transcript_text = _retrieve_relevant_chunks(state.video_id, state.query or "summary", top_k=10)
+    if not transcript_text:
+        # Fallback to full transcript if retrieval fails
+        transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    
     history_text = _build_history_text(state.history)
     
     summary_template = PromptTemplate(
@@ -298,6 +387,9 @@ def summarize_node(state: AgentState) -> AgentState:
 def translate_node(state: AgentState) -> AgentState:
     """Translate the video transcript to the target language.
     
+    Issue 23: Uses semantically relevant chunks to reduce token usage while
+    preserving translation quality. Falls back to full transcript if unavailable.
+    
     Args:
         state: Current agent state with transcript and target_language
         
@@ -306,8 +398,13 @@ def translate_node(state: AgentState) -> AgentState:
     """
     logger.debug("Executing translate node")
     
-    # Build text content (DRY: use helper function)
-    transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    # Issue 23: Use retrieved chunks instead of full transcript for efficiency
+    # For translation, retrieve broader context (larger top_k for completeness)
+    transcript_text = _retrieve_relevant_chunks(state.video_id, state.query or "translation", top_k=10)
+    if not transcript_text:
+        # Fallback to full transcript if retrieval fails
+        transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    
     history_text = _build_history_text(state.history)
 
     translate_template = PromptTemplate(

@@ -154,6 +154,52 @@ class VideoIndex:
                 logger.error(f"Error retrieving transcript from video {self.video_id}: {e}")
                 return []
     
+    def retrieve_batch_transcripts(self, queries: List[str], top_k: int = 3) -> Dict[str, List[Dict[str, Any]]]:
+        """Retrieve top-k chunks for multiple queries in a single batch operation (Issue 26).
+        
+        Batch operations are more efficient than individual queries for multiple queries.
+        
+        Args:
+            queries: List of query strings
+            top_k: Number of results per query
+            
+        Returns:
+            Dictionary mapping each query to its retrieved chunks
+        """
+        with self._lock:
+            try:
+                if not self.is_indexed():
+                    return {q: [] for q in queries}
+                
+                top_k = int(top_k[0]) if isinstance(top_k, list) else int(top_k)
+                
+                # Embed all queries at once (batch operation - Issue 26)
+                query_embeddings = self.embeddings.embed_documents(queries)
+                query_embeddings_np = np.array(query_embeddings).astype("float32")
+                
+                # Search FAISS with all queries at once
+                D, I = self.transcript_index.search(query_embeddings_np, top_k)
+                
+                # Format results for each query
+                results = {}
+                for query_idx, query in enumerate(queries):
+                    query_results = []
+                    for chunk_idx, score in zip(I[query_idx], D[query_idx]):
+                        if chunk_idx < len(self.transcript_chunks):
+                            query_results.append({
+                                "text": self.transcript_chunks[chunk_idx],
+                                "score": float(score),
+                                "metadata": self.transcript_metadata[chunk_idx]
+                            })
+                    results[query] = query_results
+                
+                self._update_access()
+                return results
+                
+            except Exception as e:
+                logger.error(f"Error in batch retrieval for video {self.video_id}: {e}")
+                return {q: [] for q in queries}
+    
     def _update_access(self) -> None:
         """Update access tracking."""
         self.last_accessed = datetime.utcnow()
