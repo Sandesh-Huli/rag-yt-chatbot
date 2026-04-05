@@ -50,7 +50,6 @@ async function getMongooseConnection() {
 }
 
 async function disconnectDB() {
-    """Gracefully disconnect from MongoDB connection pool."""
     if (mongooseConnection) {
         try {
             await mongoose.connection.close();
