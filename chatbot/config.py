@@ -5,9 +5,10 @@ All environment variables and configuration values should be managed here.
 
 import os
 from dotenv import load_dotenv
-import logging
+from chatbot.logging_config import setup_structured_logging, get_logger
 
-logger = logging.getLogger(__name__)
+# Setup structured logging (Issue 40)
+logger = setup_structured_logging("yt-chatbot")
 
 # Load environment variables ONCE at module import time
 load_dotenv()
@@ -27,9 +28,9 @@ SESSION_SECRET = os.getenv('SESSION_SECRET')
 
 # Validate secrets at startup
 if JWT_SECRET and len(JWT_SECRET) < 32:
-    logger.warning('⚠️ JWT_SECRET is less than 32 characters (not recommended for production)')
+    logger.warning("JWT_SECRET is less than 32 characters (not recommended for production)")
 if SESSION_SECRET and len(SESSION_SECRET) < 32:
-    logger.warning('⚠️ SESSION_SECRET is less than 32 characters (not recommended for production)')
+    logger.warning("SESSION_SECRET is less than 32 characters (not recommended for production)")
 
 # ============== CORS CONFIGURATION ==============
 CORS_ORIGINS_STR = os.getenv(

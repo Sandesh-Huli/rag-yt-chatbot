@@ -5,6 +5,7 @@ import express from 'express'
 import cors from 'cors'
 import cookieParser from "cookie-parser";
 import session from "express-session";
+import { requestLoggingMiddleware, errorLoggingMiddleware } from './logging/structuredLogger.js';
 import './config/mongodb.js'
 import {chatRoutes} from './routes/chatRoutes.js';
 import {userRouter} from './routes/userRoutes.js';
@@ -23,6 +24,9 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(cookieParser())
+
+// Setup structured request logging middleware (Issue 40)
+requestLoggingMiddleware(app);
 
 // Session configuration with env variables
 const sessionMaxAge = parseInt(process.env.SESSION_MAX_AGE || '604800000');  // 1 week in ms
@@ -46,5 +50,8 @@ app.use('/user',userRouter)
 app.get('/',(req,res)=>{
     res.send('Backend is yet to be built')
 })
+
+// Setup error logging middleware (Issue 40)
+errorLoggingMiddleware(app);
 
 export default app;

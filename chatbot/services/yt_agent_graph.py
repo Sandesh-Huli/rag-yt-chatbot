@@ -12,9 +12,10 @@ from chatbot.parsers.orchestrator_parser import structured_llm, Orchestrator
 from chatbot.tools.web_search import web_search
 from langchain_core.tools import Tool
 from langchain_core.prompts import PromptTemplate
-import logging
 
-logger = logging.getLogger(__name__)
+from chatbot.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 web_search_tool = Tool(
     name="web_search",
@@ -83,9 +84,19 @@ def _store_to_session_cache(session_id: str, query: str, result: str) -> None:
         session_cache = session_cache_manager.get_session_cache(session_id)
         session_cache.add_message(query, {"role": "user"})
         session_cache.add_message(result, {"role": "assistant"})
-        logger.debug(f"Stored message pair to session cache for {session_id}")
+        logger.debug("Message pair stored to session cache", {
+            "event_type": "session_cache_update",
+            "session_id": session_id,
+            "query_length": len(query),
+            "result_length": len(result),
+        })
     except Exception as e:
-        logger.error(f"Failed to store message to session cache ({session_id}): {type(e).__name__}: {str(e)}")
+        logger.error("Failed to store message to session cache", {
+            "event_type": "session_cache_error",
+            "session_id": session_id,
+            "error": str(e),
+            "error_type": type(e).__name__,
+        })
 
 
 def _retrieve_relevant_chunks(video_id: str, query: str, top_k: int = 5) -> str:
@@ -111,14 +122,33 @@ def _retrieve_relevant_chunks(video_id: str, query: str, top_k: int = 5) -> str:
             if results:
                 # Format retrieved chunks, separating by dividers
                 chunks_text = "\n---\n".join([r['text'] for r in results])
-                logger.debug(f"Retrieved {len(results)} highly relevant chunks for semantic search (token-efficient)")
+                logger.debug("Retrieved relevant chunks", {
+                    "event_type": "semantic_search_success",
+                    "video_id": video_id,
+                    "chunk_count": len(results),
+                    "query_length": len(query),
+                    "combined_text_length": len(chunks_text),
+                })
                 return chunks_text
-            logger.debug("Retrieval returned no results, falling back to full transcript")
+            logger.debug("Retrieval returned no results", {
+                "event_type": "semantic_search_no_results",
+                "video_id": video_id,
+                "query": query,
+            })
     except Exception as e:
-        logger.warning(f"FAISS retrieval failed ({type(e).__name__}), using full transcript: {str(e)}")
+        logger.warning("FAISS retrieval failed", {
+            "event_type": "semantic_search_error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "video_id": video_id,
+            "query_length": len(query),
+        })
     
     # Fallback: return full transcript if retrieval fails or not indexed
-    logger.debug("Using full transcript as fallback (FAISS not available yet)")
+    logger.debug("Using full transcript as fallback", {
+        "event_type": "fallback_full_transcript",
+        "video_id": video_id,
+    })
     return ""  # Will use full transcript in calling node
 
 
@@ -141,7 +171,11 @@ def _retrieve_batch_chunks(video_id: str, queries: List[str], top_k: int = 3) ->
         video_cache = video_cache_manager.get_video_cache(video_id)
         
         if not video_cache.is_indexed():
-            logger.debug("Video not indexed in FAISS, batch retrieval unavailable")
+            logger.debug("Video not indexed in FAISS", {
+                "event_type": "batch_retrieval_unavailable",
+                "video_id": video_id,
+                "query_count": len(queries),
+            })
             return {q: [] for q in queries}
         
         results = {}
@@ -149,15 +183,29 @@ def _retrieve_batch_chunks(video_id: str, queries: List[str], top_k: int = 3) ->
             try:
                 chunks = video_cache.retrieve_transcript(query, top_k=top_k)
                 results[query] = chunks
-                logger.debug(f"Retrieved {len(chunks)} chunks for query: {query[:50]}...")
+                logger.debug("Retrieved chunks for query", {
+                    "event_type": "batch_retrieval_single",
+                    "chunk_count": len(chunks),
+                    "query_preview": query[:50],
+                })
             except Exception as e:
-                logger.error(f"Failed to retrieve chunks for query: {type(e).__name__}: {str(e)}")
+                logger.error("Failed to retrieve chunks for query", {
+                    "event_type": "batch_retrieval_item_error",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "query_preview": query[:50],
+                })
                 results[query] = []
         
         return results
     except Exception as e:
-        logger.error(f"Batch retrieval failed: {type(e).__name__}: {str(e)}")
-        return {q: [] for q in queries}
+        logger.error("Batch retrieval failed", {
+            "event_type": "batch_retrieval_error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "video_id": video_id,
+            "query_count": len(queries),
+        })
 
 
 # ---- Batch Search Method for FAISS (Issue 26) ------------ Graph Nodes ----------------
@@ -170,16 +218,33 @@ def fetch_transcript_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with transcript_segments or error message
     """
-    logger.info(f"🎬 Fetching transcript for video: {state.video_id}")
+    logger.info("Fetching transcript", {
+        "event_type": "transcript_fetch_start",
+        "video_id": state.video_id,
+        "language": state.lang,
+    })
     try:
         state.transcript_segments = fetch_youtube_transcript(state.video_id, state.lang)
-        logger.info(f"✅ Transcript fetched: {len(state.transcript_segments)} segments")
+        logger.info("Transcript fetched successfully", {
+            "event_type": "transcript_fetch_success",
+            "video_id": state.video_id,
+            "segment_count": len(state.transcript_segments),
+        })
     except ValueError as e:
-        logger.error(f"Invalid video ID format '{state.video_id}': {str(e)}")
+        logger.error("Invalid video ID format", {
+            "event_type": "transcript_fetch_invalid_id",
+            "video_id": state.video_id,
+            "error": str(e),
+        })
         state.result = "Error: Invalid YouTube video ID format. Expected 11-character alphanumeric string."
         state.transcript_segments = []
     except Exception as e:
-        logger.error(f"Failed to fetch transcript from YouTube API: {type(e).__name__}: {str(e)}")
+        logger.error("Failed to fetch transcript", {
+            "event_type": "transcript_fetch_error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "video_id": state.video_id,
+        })
         state.result = "Error: Could not fetch video transcript. Please check the video ID and try again."
         state.transcript_segments = []
     
@@ -198,7 +263,10 @@ def add_transcript_node(state: AgentState) -> AgentState:
         RuntimeError: If no transcript loaded
     """
     if not state.transcript_segments:
-        logger.error("Cannot index transcript: no segments loaded")
+        logger.error("Cannot index transcript: no segments loaded", {
+            "event_type": "transcript_index_error_no_segments",
+            "video_id": state.video_id,
+        })
         state.result = "Error: No transcript available to process."
         return state
     
@@ -206,18 +274,34 @@ def add_transcript_node(state: AgentState) -> AgentState:
     video_cache = video_cache_manager.get_video_cache(state.video_id)
     
     if video_cache.is_indexed():
-        logger.info(f"Transcript already indexed for video: {state.video_id}")
+        logger.info("Transcript already indexed", {
+            "event_type": "transcript_already_indexed",
+            "video_id": state.video_id,
+        })
         return state
     
-    logger.info(f"Adding transcript to video cache for: {state.video_id}")
+    logger.info("Adding transcript to video cache", {
+        "event_type": "transcript_index_start",
+        "video_id": state.video_id,
+        "segment_count": len(state.transcript_segments),
+    })
     try:
         video_cache.add_transcript(
             state.transcript_segments,
             metadata={"video_id": state.video_id}
         )
-        logger.info(f"Successfully embedded and cached transcript ({len(state.transcript_segments)} segments)")
+        logger.info("Transcript successfully embedded and cached", {
+            "event_type": "transcript_index_success",
+            "video_id": state.video_id,
+            "segment_count": len(state.transcript_segments),
+        })
     except Exception as e:
-        logger.error(f"Failed to embed transcript: {type(e).__name__}: {str(e)}")
+        logger.error("Failed to embed transcript", {
+            "event_type": "transcript_index_error",
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "video_id": state.video_id,
+        })
         state.result = "Error: Could not process video transcript for search. Please try again."
     
     return state
@@ -232,7 +316,11 @@ def orchestrator_node(state: AgentState) -> AgentState:
     Returns:
         Updated state with selected mode
     """
-    logger.info(f"Analyzing query with orchestrator: {state.query[:50]}...")
+    logger.info("Analyzing query with orchestrator", {
+        "event_type": "orchestrator_analysis_start",
+        "query_preview": state.query[:50],
+        "session_id": state.session_id,
+    })
     
     try:
         # Call structured_llm with the query - it handles the structured output

@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
 import app from "./src/app.js";
+import { logger } from "./src/logging/structuredLogger.js";
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -13,7 +14,10 @@ const requiredEnvVars = [
 const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
 
 if (missingVars.length > 0) {
-    console.error('❌ Error: Missing required environment variables:');
+    logger.error('Missing required environment variables', {
+        event_type: 'startup_error',
+        missing_vars: missingVars,
+    });
     missingVars.forEach(varName => console.error(`   - ${varName}`));
     console.error('\nPlease check your .env file and ensure all required variables are set.');
     console.error('Refer to .env.example for the required configuration.\n');
@@ -23,7 +27,9 @@ if (missingVars.length > 0) {
 const PORT = process.env.PORT || 4000;
 
 app.listen(PORT, () => {
-    console.log('✅ Environment variables validated successfully');
-    console.log(`🚀 Backend server running on port: ${PORT}`);
-    console.log(`📡 FastAPI URL: ${process.env.FASTAPI_URL}`);
+    logger.info('Environment variables validated successfully', {
+        event_type: 'startup',
+        port: PORT,
+        fastapi_url: process.env.FASTAPI_URL,
+    });
 })

@@ -5,12 +5,13 @@ Uses LangChain's SemanticChunker for semantic chunking and Gemini embeddings.
 
 import os
 import pickle
-import logging
 from dotenv import load_dotenv
 from typing import List, Dict, Any
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from chatbot.logging_config import get_logger
+
+logger = get_logger(__name__)
 import faiss
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -70,7 +71,11 @@ class RAG:
                 with open(os.path.join(self.persist_dir, "query.pkl"), "rb") as f:
                     self.query_texts, self.query_metadata = pickle.load(f)
         except Exception as e:
-            logger.error(f"Failed to load FAISS indexes: {str(e)}")
+            logger.error("Failed to load FAISS indexes", {
+                "event_type": "rag_index_load_error",
+                "error": str(e),
+                "persist_dir": self.persist_dir,
+            })
     
     def is_video_indexed(self, video_id: str) -> bool:
         """Check if a video_id is already indexed in transcript metadata."""
@@ -110,17 +115,35 @@ class RAG:
             raise RuntimeError(f"Error adding transcript to RAG: {str(e)}")
         
         # Log embedding summary
-        logger.info(f"Transcript embedded successfully: {len(chunks)} chunks, {embeddings_np.shape[1]} dimensions, metadata={meta}")
+        logger.info("Transcript embedded successfully", {
+            "event_type": "transcript_embedded",
+            "chunk_count": len(chunks),
+            "embedding_dimensions": embeddings_np.shape[1],
+            "metadata": meta,
+        })
         
         # Log detailed embedding statistics for first few chunks if debug logging enabled
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.level <= 10:  # DEBUG level
             num_to_log = min(3, len(chunks))
             for i in range(num_to_log):
                 chunk_preview = chunks[i][:100] + ('...' if len(chunks[i]) > 100 else '')
-                vector_stats = f"min={np.min(embeddings_np[i]):.4f}, max={np.max(embeddings_np[i]):.4f}, mean={np.mean(embeddings_np[i]):.4f}, std={np.std(embeddings_np[i]):.4f}, norm={np.linalg.norm(embeddings_np[i]):.4f}"
-                logger.debug(f"Chunk {i+1}/{len(chunks)}: {chunk_preview} | Stats: {vector_stats}")
+                vector_stats = {
+                    "min": float(np.min(embeddings_np[i])),
+                    "max": float(np.max(embeddings_np[i])),
+                    "mean": float(np.mean(embeddings_np[i])),
+                    "std": float(np.std(embeddings_np[i])),
+                    "norm": float(np.linalg.norm(embeddings_np[i])),
+                }
+                logger.debug(f"Chunk {i+1}/{len(chunks)}", {
+                    "event_type": "chunk_embedding_stats",
+                    "chunk_preview": chunk_preview,
+                    "vector_stats": vector_stats,
+                })
             if len(chunks) > num_to_log:
-                logger.debug(f"... and {len(chunks) - num_to_log} more chunks embedded")
+                logger.debug(f"... and {len(chunks) - num_to_log} more chunks embedded", {
+                    "event_type": "chunk_embedding_summary",
+                    "additional_chunks": len(chunks) - num_to_log,
+                })
 
     def retrieve_transcript(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Retrieve top_k transcript chunks relevant to query.
@@ -153,7 +176,12 @@ class RAG:
                     })
             return results
         except Exception as e:
-            logger.error(f"Error retrieving transcript: {str(e)}")
+            logger.error("Error retrieving transcript", {
+                "event_type": "transcript_retrieval_error",
+                "error": str(e),
+                "query_length": len(query),
+                "top_k": top_k,
+            })
             return []
 
     def add_query(self, query: str, meta: Dict[str, Any] = None) -> None:
@@ -243,15 +271,30 @@ class RAG:
                             }
                             db_service.save_memory_state(session_id, video_id, memory_state)
                             
-                            logger.info(f"✅ Summarized {len(messages_to_summarize)} original messages, keeping last {max_messages}")
+                            logger.info("Message summarization successful", {
+                                "event_type": "memory_summarized",
+                                "messages_summarized": len(messages_to_summarize),
+                                "messages_kept": max_messages,
+                                "summary_length": len(summary_text),
+                            })
                         except Exception as e:
-                            logger.error(f"Error during summarization: {str(e)}")
+                            logger.error("Error during summarization", {
+                                "event_type": "summarization_error",
+                                "error": str(e),
+                                "session_id": session_id,
+                                "message_count": len(messages_to_summarize),
+                            })
             
             # Return current memory state
             return db_service.get_memory_state(session_id, video_id)
             
         except Exception as e:
-            logger.error(f"Error in check_and_prune_memory: {str(e)}")
+            logger.error("Error in check_and_prune_memory", {
+                "event_type": "memory_pruning_error",
+                "error": str(e),
+                "session_id": session_id,
+                "video_id": video_id,
+            })
             return None
 
     def retrieve_queries(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:

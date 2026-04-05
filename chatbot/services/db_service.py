@@ -4,9 +4,10 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 import os
 import threading
-import logging
 
-logger = logging.getLogger(__name__)
+from chatbot.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 # ============= MongoDB Singleton Connection Pool =============
@@ -50,10 +51,20 @@ class MongoDBClientSingleton:
             
             # Verify connection
             self.client.admin.command('ping')
-            logger.info("✅ MongoDB connection pool initialized (maxPoolSize=50, minPoolSize=10)")
+            logger.info("MongoDB connection pool initialized", {
+                "event_type": "db_connection_pool_init",
+                "max_pool_size": 50,
+                "min_pool_size": 10,
+                "connection_timeout_ms": 5000,
+                "wait_queue_timeout_ms": 10000,
+            })
             
         except Exception as e:
-            logger.error(f"❌ Failed to initialize MongoDB connection: {e}")
+            logger.error("Failed to initialize MongoDB connection", {
+                "event_type": "db_connection_error",
+                "error": str(e),
+                "mongo_uri_set": bool(os.getenv("MONGO_URI")),
+            })
             raise
     
     def get_client(self) -> MongoClient:
@@ -65,9 +76,14 @@ class MongoDBClientSingleton:
         if self.client:
             try:
                 self.client.close()
-                logger.info("🗑️ MongoDB connection pool closed")
+                logger.info("MongoDB connection pool closed", {
+                    "event_type": "db_connection_closed",
+                })
             except Exception as e:
-                logger.error(f"Error closing MongoDB connection: {e}")
+                logger.error("Error closing MongoDB connection", {
+                    "event_type": "db_disconnect_error",
+                    "error": str(e),
+                })
 
 
 # Global singleton instance
