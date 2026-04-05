@@ -42,7 +42,7 @@ class RAG:
         self._load_indexes()
         
     # -------------------- Persistence Helpers --------------------
-    def _save_indexes(self):
+    def _save_indexes(self) -> None:
         # transcript
         if self.transcript_index:
             faiss.write_index(self.transcript_index, os.path.join(self.persist_dir, "transcript.index"))
@@ -55,7 +55,8 @@ class RAG:
             with open(os.path.join(self.persist_dir, "query.pkl"), "wb") as f:
                 pickle.dump((self.query_texts, self.query_metadata), f)
 
-    def _load_indexes(self):
+    def _load_indexes(self) -> None:
+        """Load persisted FAISS indexes from disk if they exist."""
         try:
             # transcript
             if os.path.exists(os.path.join(self.persist_dir, "transcript.index")):
@@ -69,7 +70,7 @@ class RAG:
                 with open(os.path.join(self.persist_dir, "query.pkl"), "rb") as f:
                     self.query_texts, self.query_metadata = pickle.load(f)
         except Exception as e:
-            print("⚠️ Failed to load FAISS indexes:", e)
+            logger.error(f"Failed to load FAISS indexes: {str(e)}")
     
     def is_video_indexed(self, video_id: str) -> bool:
         """Check if a video_id is already indexed in transcript metadata."""
@@ -85,9 +86,13 @@ class RAG:
         all_text = " ".join(transcript)
         return self.transcript_chunker.split_text(all_text)
         
-    def add_transcript(self, transcript: List[str], meta: Dict[str, Any] = None):
+    def add_transcript(self, transcript: List[str], meta: Dict[str, Any] = None) -> None:
         """
         Chunks, embeds, and stores transcript data.
+        
+        Args:
+            transcript: List of transcript segments
+            meta: Optional metadata dictionary with video info
         """
         try:
             chunks = self.chunk_transcript(transcript)
@@ -104,46 +109,29 @@ class RAG:
         except Exception as e:
             raise RuntimeError(f"Error adding transcript to RAG: {str(e)}")
         
-        # Print embedding vectors to console
-        print("\n" + "="*80)
-        print("📊 TRANSCRIPT EMBEDDING VECTORS GENERATED")
-        print("="*80)
-        print(f"Embedding Model: sentence-transformers/all-mpnet-base-v2")
-        print(f"Total Chunks: {len(chunks)}")
-        print(f"Vector Dimensions: {embeddings_np.shape[1]}")
-        print(f"Metadata: {meta}")
-        print("\n" + "-"*80)
+        # Log embedding summary
+        logger.info(f"Transcript embedded successfully: {len(chunks)} chunks, {embeddings_np.shape[1]} dimensions, metadata={meta}")
         
-        # Print first 3 embeddings (for readability)
-        num_to_print = min(3, len(chunks))
-        for i in range(num_to_print):
-            print(f"\n📄 Chunk {i+1}/{len(chunks)}:")
-            print(f"Text: \"{chunks[i][:100]}{'...' if len(chunks[i]) > 100 else ''}\"")
-            print(f"\nVector (first 20 dimensions):")
-            vector_sample = embeddings_np[i][:20]
-            for j in range(0, 20, 5):
-                formatted = ", ".join([f"{v:7.4f}" for v in vector_sample[j:j+5]])
-                print(f"  [{j:2d}-{j+4:2d}]: {formatted}")
-            
-            print(f"\nVector Statistics:")
-            print(f"  Min:  {np.min(embeddings_np[i]):8.4f}")
-            print(f"  Max:  {np.max(embeddings_np[i]):8.4f}")
-            print(f"  Mean: {np.mean(embeddings_np[i]):8.4f}")
-            print(f"  Std:  {np.std(embeddings_np[i]):8.4f}")
-            print(f"  Norm: {np.linalg.norm(embeddings_np[i]):8.4f}")
-            
-            if i < num_to_print - 1:
-                print("\n" + "-"*80)
-        
-        if len(chunks) > num_to_print:
-            print(f"\n... ({len(chunks) - num_to_print} more chunks embedded)")
-        
-        print("\n" + "="*80)
-        print(f"✅ All {len(chunks)} embeddings stored in FAISS index")
-        print("="*80 + "\n")
+        # Log detailed embedding statistics for first few chunks if debug logging enabled
+        if logger.isEnabledFor(logging.DEBUG):
+            num_to_log = min(3, len(chunks))
+            for i in range(num_to_log):
+                chunk_preview = chunks[i][:100] + ('...' if len(chunks[i]) > 100 else '')
+                vector_stats = f"min={np.min(embeddings_np[i]):.4f}, max={np.max(embeddings_np[i]):.4f}, mean={np.mean(embeddings_np[i]):.4f}, std={np.std(embeddings_np[i]):.4f}, norm={np.linalg.norm(embeddings_np[i]):.4f}"
+                logger.debug(f"Chunk {i+1}/{len(chunks)}: {chunk_preview} | Stats: {vector_stats}")
+            if len(chunks) > num_to_log:
+                logger.debug(f"... and {len(chunks) - num_to_log} more chunks embedded")
 
     def retrieve_transcript(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        """Retrieve top_k transcript chunks relevant to query."""
+        """Retrieve top_k transcript chunks relevant to query.
+        
+        Args:
+            query: Query string to search for
+            top_k: Number of top results to return
+            
+        Returns:
+            List of retrieved chunks with text, score, and metadata
+        """
         try:
             if self.transcript_index is None or len(self.transcript_chunks) == 0:
                 return []
@@ -168,7 +156,14 @@ class RAG:
             logger.error(f"Error retrieving transcript: {str(e)}")
             return []
 
-    def add_query(self, query: str, meta: Dict[str, Any] = None):
+    def add_query(self, query: str, meta: Dict[str, Any] = None) -> None:
+        """
+        Embed and store chat history query.
+        
+        Args:
+            query: Query text from user
+            meta: Optional metadata dictionary
+        """
         """Embeds and stores chat history messages (user or assistant)."""
         emb = self.embedding_model.embed_query(query)
         emb_np = np.array(emb).astype("float32").reshape(1, -1)
@@ -179,11 +174,21 @@ class RAG:
         self.query_texts.append(query)
         self.query_metadata.append(meta if meta else {})
 
-    def check_and_prune_memory(self, db_service, session_id: str, video_id: str, 
-                               max_messages: int = 15, summary_threshold: int = 20):
+    def check_and_prune_memory(self, db_service: Any, session_id: str, video_id: str, 
+                               max_messages: int = 15, summary_threshold: int = 20) -> Dict[str, Any]:
         """
         Check if chat memory exceeds threshold and prune/summarize old messages.
         Only summarizes ORIGINAL messages (is_original=True), never re-summarizes.
+        
+        Args:
+            db_service: Database service instance
+            session_id: User session identifier
+            video_id: Video identifier
+            max_messages: Maximum messages to keep in active window
+            summary_threshold: Trigger summarization when message count exceeds this
+            
+        Returns:
+            Updated memory state dictionary or None if error occurs
         """
         try:
             from chatbot.models.llm import get_llm_response

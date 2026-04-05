@@ -48,7 +48,7 @@ class SingletonEmbeddings:
                 encode_kwargs={'normalize_embeddings': True}
             )
             self.chunker = SemanticChunker(self.model)
-            logger.info("✅ Shared embedding model initialized")
+            logger.info("Shared embedding model initialized")
         except Exception as e:
             logger.error(f"Failed to initialize embeddings: {e}")
             raise
@@ -88,8 +88,13 @@ class VideoIndex:
         """Check if this video has transcript indexed."""
         return self.transcript_index is not None and len(self.transcript_chunks) > 0
     
-    def add_transcript(self, transcript: List[str], metadata: Dict[str, Any] = None):
-        """Add transcript to video index (thread-safe)."""
+    def add_transcript(self, transcript: List[str], metadata: Dict[str, Any] = None) -> None:
+        """Add transcript to video index (thread-safe).
+        
+        Args:
+            transcript: List of transcript segments
+            metadata: Optional metadata dictionary
+        """
         with self._lock:
             try:
                 # Chunk transcript
@@ -111,7 +116,7 @@ class VideoIndex:
                 for _ in chunks:
                     self.transcript_metadata.append(metadata if metadata else {})
                 
-                logger.info(f"✅ Added {len(chunks)} transcript chunks for video {self.video_id}")
+                logger.info(f"Added {len(chunks)} transcript chunks for video {self.video_id}")
                 self._update_access()
                 
             except Exception as e:
@@ -149,7 +154,7 @@ class VideoIndex:
                 logger.error(f"Error retrieving transcript from video {self.video_id}: {e}")
                 return []
     
-    def _update_access(self):
+    def _update_access(self) -> None:
         """Update access tracking."""
         self.last_accessed = datetime.utcnow()
         self.access_count += 1
@@ -172,8 +177,13 @@ class SessionMemory:
         # Lock for thread-safe operations
         self._lock = threading.Lock()
     
-    def add_message(self, text: str, metadata: Dict[str, Any] = None):
-        """Add message to session memory (thread-safe)."""
+    def add_message(self, text: str, metadata: Dict[str, Any] = None) -> None:
+        """Add message to session memory (thread-safe).
+        
+        Args:
+            text: Message text to add
+            metadata: Optional metadata dictionary
+        """
         with self._lock:
             try:
                 # Embed message
@@ -210,8 +220,12 @@ class SessionMemory:
         with self._lock:
             return len(self.query_texts)
     
-    def clear_old_messages(self, indices_to_delete: List[int]):
-        """Delete messages by indices (thread-safe)."""
+    def clear_old_messages(self, indices_to_delete: List[int]) -> None:
+        """Delete messages by indices (thread-safe).
+        
+        Args:
+            indices_to_delete: List of message indices to remove
+        """
         with self._lock:
             try:
                 # Sort indices in reverse to avoid index shifting
@@ -236,7 +250,7 @@ class SessionMemory:
                 logger.error(f"Error clearing messages from session {self.session_id}: {e}")
                 raise
     
-    def _update_access(self):
+    def _update_access(self) -> None:
         """Update access tracking."""
         self.last_accessed = datetime.utcnow()
 
@@ -254,20 +268,34 @@ class VideoCacheManager:
         with self._lock:
             if video_id not in self.cache:
                 self.cache[video_id] = VideoIndex(video_id, self.embeddings)
-                logger.info(f"📹 Created video cache for {video_id}")
+                logger.info(f"Created video cache for {video_id}")
             return self.cache[video_id]
     
     def cleanup_video(self, video_id: str) -> bool:
-        """Remove video from cache (thread-safe)."""
+        """Remove video from cache (thread-safe).
+        
+        Args:
+            video_id: Video identifier to remove
+            
+        Returns:
+            True if video was found and removed, False if not found
+        """
         with self._lock:
             if video_id in self.cache:
                 del self.cache[video_id]
-                logger.info(f"🗑️ Cleaned up video cache for {video_id}")
+                logger.info(f"Cleaned up video cache for {video_id}")
                 return True
             return False
     
     def cleanup_expired_videos(self, days: int = 7) -> int:
-        """Remove videos not accessed in N days (thread-safe)."""
+        """Remove videos not accessed in N days (thread-safe).
+        
+        Args:
+            days: Number of days of inactivity before cleanup
+            
+        Returns:
+            Number of videos cleaned up
+        """
         with self._lock:
             now = datetime.utcnow()
             expired = []
@@ -281,16 +309,24 @@ class VideoCacheManager:
                 del self.cache[video_id]
             
             if expired:
-                logger.info(f"🗑️ Cleaned up {len(expired)} expired video caches")
+                logger.info(f"Cleaned up {len(expired)} expired video caches")
             return len(expired)
     
     def list_cached_videos(self) -> List[str]:
-        """List all cached video IDs."""
+        """List all cached video IDs.
+        
+        Returns:
+            List of video identifiers currently in cache
+        """
         with self._lock:
             return list(self.cache.keys())
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
+        """Get cache statistics.
+        
+        Returns:
+            Dictionary with cache stats (total_videos, total_chunks, video list)
+        """
         with self._lock:
             total_videos = len(self.cache)
             total_chunks = sum(len(v.transcript_chunks) for v in self.cache.values())
@@ -314,20 +350,34 @@ class SessionCacheManager:
         with self._lock:
             if session_id not in self.cache:
                 self.cache[session_id] = SessionMemory(session_id, self.embeddings)
-                logger.info(f"💬 Created session cache for {session_id}")
+                logger.info(f"Created session cache for {session_id}")
             return self.cache[session_id]
     
     def cleanup_session(self, session_id: str) -> bool:
-        """Remove session from cache (thread-safe)."""
+        """Remove session from cache (thread-safe).
+        
+        Args:
+            session_id: Session identifier to remove
+            
+        Returns:
+            True if session was found and removed, False if not found
+        """
         with self._lock:
             if session_id in self.cache:
                 del self.cache[session_id]
-                logger.info(f"🗑️ Cleaned up session cache for {session_id}")
+                logger.info(f"Cleaned up session cache for {session_id}")
                 return True
             return False
     
     def cleanup_expired_sessions(self, days: int = 1) -> int:
-        """Remove sessions not accessed in N days (thread-safe)."""
+        """Remove sessions not accessed in N days (thread-safe).
+        
+        Args:
+            days: Number of days of inactivity before cleanup
+            
+        Returns:
+            Number of sessions cleaned up
+        """
         with self._lock:
             now = datetime.utcnow()
             expired = []
@@ -341,16 +391,24 @@ class SessionCacheManager:
                 del self.cache[session_id]
             
             if expired:
-                logger.info(f"🗑️ Cleaned up {len(expired)} expired session caches")
+                logger.info(f"Cleaned up {len(expired)} expired session caches")
             return len(expired)
     
     def list_cached_sessions(self) -> List[str]:
-        """List all cached session IDs."""
+        """List all cached session IDs.
+        
+        Returns:
+            List of session identifiers currently in cache
+        """
         with self._lock:
             return list(self.cache.keys())
     
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
+        """Get cache statistics.
+        
+        Returns:
+            Dictionary with cache stats (total_sessions, total_messages, session list)
+        """
         with self._lock:
             total_sessions = len(self.cache)
             total_messages = sum(s.get_message_count() for s in self.cache.values())

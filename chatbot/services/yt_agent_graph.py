@@ -40,72 +40,162 @@ class AgentState:
 # --------------- Setup ---------------
 db = DBService()
 
-def extract_response_content(response):
+def extract_response_content(response: Any) -> str:
     """Extract string content from LLM response object or string."""
     if hasattr(response, "content"):
         return response.content
     return str(response)
 
 
+# ============= HELPER FUNCTIONS (Issue 16: Deduplication) =============
+
+def _build_history_text(history: Optional[List[Dict[str, str]]]) -> str:
+    """Build formatted history text from messages (used in qa, summarize, translate nodes).
+    
+    Args:
+        history: List of message dicts with 'role' and 'content' keys
+        
+    Returns:
+        Formatted history string for LLM prompt
+    """
+    if not history:
+        return ""
+    
+    return "\n".join([
+        f'{m["role"]}: {m["content"]}'
+        for m in history
+        if m.get("role") and m.get("content")
+    ])
+
+
+def _store_to_session_cache(session_id: str, query: str, result: str) -> None:
+    """Store query and response to session cache for per-session memory.
+    
+    Args:
+        session_id: Unique session identifier
+        query: User's query
+        result: Assistant's response
+        
+    Raises:
+        Logs error but doesn't raise (graceful degradation)
+    """
+    try:
+        session_cache = session_cache_manager.get_session_cache(session_id)
+        session_cache.add_message(query, {"role": "user"})
+        session_cache.add_message(result, {"role": "assistant"})
+        logger.debug(f"Stored message pair to session cache for {session_id}")
+    except Exception as e:
+        logger.error(f"Failed to store message to session cache ({session_id}): {type(e).__name__}: {str(e)}")
+
+
 # ---------------- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
+    """Fetch YouTube transcript for the given video ID.
+    
+    Args:
+        state: Current agent state
+        
+    Returns:
+        Updated state with transcript_segments or error message
+    """
     logger.info(f"🎬 Fetching transcript for video: {state.video_id}")
     try:
-        state.transcript_segments =  fetch_youtube_transcript(state.video_id,state.lang)
+        state.transcript_segments = fetch_youtube_transcript(state.video_id, state.lang)
         logger.info(f"✅ Transcript fetched: {len(state.transcript_segments)} segments")
-    except Exception as e:
-        logger.error(f"❌ YouTube API Error: {str(e)}")
+    except ValueError as e:
+        logger.error(f"Invalid video ID format '{state.video_id}': {str(e)}")
+        state.result = "Error: Invalid YouTube video ID format. Expected 11-character alphanumeric string."
         state.transcript_segments = []
-        state.result = f"Error: Could not fetch transcript - {str(e)}"
+    except Exception as e:
+        logger.error(f"Failed to fetch transcript from YouTube API: {type(e).__name__}: {str(e)}")
+        state.result = "Error: Could not fetch video transcript. Please check the video ID and try again."
+        state.transcript_segments = []
+    
     return state
 
 def add_transcript_node(state: AgentState) -> AgentState:
+    """Add transcript to video cache for semantic search.
+    
+    Args:
+        state: Current agent state with transcript_segments
+        
+    Returns:
+        Updated state (or with error message if embedding fails)
+        
+    Raises:
+        RuntimeError: If no transcript loaded
+    """
     if not state.transcript_segments:
-        raise RuntimeError("No transcript loaded. Please fetch transcript first.")
+        logger.error("Cannot index transcript: no segments loaded")
+        state.result = "Error: No transcript available to process."
+        return state
     
     # Get or create video cache for this video_id
     video_cache = video_cache_manager.get_video_cache(state.video_id)
     
     if video_cache.is_indexed():
-        logger.info(f"✅ Transcript already indexed for video: {state.video_id}")
+        logger.info(f"Transcript already indexed for video: {state.video_id}")
         return state
     
-    logger.info(f"🔄 Adding transcript to video cache for video: {state.video_id}")
+    logger.info(f"Adding transcript to video cache for: {state.video_id}")
     try:
-        video_cache.add_transcript(state.transcript_segments, metadata={"video_id": state.video_id})
-        logger.info(f"💾 Transcript embeddings saved to FAISS")
+        video_cache.add_transcript(
+            state.transcript_segments,
+            metadata={"video_id": state.video_id}
+        )
+        logger.info(f"Successfully embedded and cached transcript ({len(state.transcript_segments)} segments)")
     except Exception as e:
-        logger.error(f"❌ FAISS/Embedding Error: {str(e)}")
-        state.result = f"Error: Could not process transcript embeddings - {str(e)}"
+        logger.error(f"Failed to embed transcript: {type(e).__name__}: {str(e)}")
+        state.result = "Error: Could not process video transcript for search. Please try again."
+    
     return state
 
 
 def orchestrator_node(state: AgentState) -> AgentState:
-    logger.info(f"🎯 Orchestrator analyzing query: {state.query[:50]}...")
+    """Determine which operation mode to use (QA, Summarize, Translate, Fallback).
+    
+    Args:
+        state: Current agent state with query
+        
+    Returns:
+        Updated state with selected mode
+    """
+    logger.info(f"Analyzing query with orchestrator: {state.query[:50]}...")
     
     try:
         # Call structured_llm with the query - it handles the structured output
         orchestrator_response: Orchestrator = structured_llm(state.query)
-        logger.info(f"✅ Orchestrator selected mode: {orchestrator_response.mode}")
+        logger.info(f"Orchestrator selected mode: {orchestrator_response.mode}")
         state.mode = orchestrator_response.mode
+    except ValueError as e:
+        logger.warning(f"Orchestrator validation failed (query too long?): {str(e)}")
+        state.mode = "qa"  # safe fallback
     except Exception as e:
-        logger.warning(f"⚠️ Orchestrator fallback due to error: {e}")
+        logger.warning(f"Orchestrator failed ({type(e).__name__}), using fallback QA mode: {str(e)}")
         state.mode = "qa"  # safe fallback
 
     return state
 
 
 def qa_node(state: AgentState) -> AgentState:
-    logger.debug("QA node called")
-    transcript_text=""
-    if state.transcript_segments:
-        transcript_text = "\n".join(state.transcript_segments)
-
-    history_text = ""
-    if state.history:
-        history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
+    """Answer user question using transcript and/or web search.
+    
+    Uses orchestrator logic: determine if web search needed, then generate answer.
+    Stores interaction in session cache.
+    
+    Args:
+        state: Current agent state with query, transcript, history
         
-    # Safe prompt template to prevent injection
+    Returns:
+        Updated state with result
+    """
+    logger.debug("Executing QA node")
+    
+    # Build text content
+    transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    history_text = _build_history_text(state.history)
+    
+    # Determine if web search is needed
     tool_template = PromptTemplate(
         input_variables=["transcript", "history", "query"],
         template="You are a helpful assistant. If the answer is not in the transcript or chat history, "
@@ -115,16 +205,24 @@ def qa_node(state: AgentState) -> AgentState:
                  "User Question: {query}"
     )
     tool_prompt = tool_template.format(transcript=transcript_text, history=history_text, query=state.query)
-    tool_decision = get_llm_response(tool_prompt)
-    tool_decision_text = extract_response_content(tool_decision).strip().lower()
-    logger.debug(f"Tool decision: {tool_decision_text}")
+    
+    try:
+        tool_decision = get_llm_response(tool_prompt)
+        tool_decision_text = extract_response_content(tool_decision).strip().lower()
+        logger.debug(f"Tool decision: {tool_decision_text}")
+    except Exception as e:
+        logger.error(f"Failed to determine search necessity: {type(e).__name__}: {str(e)}")
+        state.result = "Error: Could not process your query. Please try again."
+        return state
+    
+    # Route to search or transcript path
     if tool_decision_text == "search":
         try:
             web_results = web_search_tool.run(state.query)
         except Exception as e:
-            logger.error(f"❌ Web Search Error: {str(e)}")
+            logger.warning(f"Web search failed, falling back to transcript: {type(e).__name__}: {str(e)}")
             web_results = "[Web search unavailable]"
-        # Safe prompt template for search path
+        
         search_template = PromptTemplate(
             input_variables=["web_results", "history", "query"],
             template="You are a helpful assistant. Use the following web search results and previous chat history to answer the user's question.\n\n"
@@ -134,7 +232,6 @@ def qa_node(state: AgentState) -> AgentState:
         )
         prompt = search_template.format(web_results=web_results, history=history_text, query=state.query)
     else:
-    # Safe prompt template for transcript path
         transcript_template = PromptTemplate(
             input_variables=["transcript", "history", "query"],
             template="You are a helpful assistant. Use the following transcript and previous chat history to answer the user's question.\n\n"
@@ -143,35 +240,37 @@ def qa_node(state: AgentState) -> AgentState:
                      "User Question: {query}"
         )
         prompt = transcript_template.format(transcript=transcript_text, history=history_text, query=state.query)
+    
+    # Generate response
     try:
         result = get_llm_response(prompt)
         state.result = extract_response_content(result)
+        logger.info(f"QA response generated ({len(state.result)} chars)")
     except Exception as e:
-        logger.error(f"❌ LLM API Error: {str(e)}")
-        state.result = f"Error: Could not generate response - {str(e)}"
+        logger.error(f"LLM API call failed in QA node: {type(e).__name__}: {str(e)}")
+        state.result = "Error: Failed to generate response. The AI service is temporarily unavailable."
         return state
-    # Save query + answer into session cache (per-session memory)
-    try:
-        session_cache = session_cache_manager.get_session_cache(state.session_id)
-        query_text = extract_response_content(state.query)
-        session_cache.add_message(query_text, {"role": "user"})
-        session_cache.add_message(state.result, {"role": "assistant"})
-    except Exception as e:
-        logger.error(f"❌ Session Memory Storage Error: {str(e)}")
+    
+    # Store to session cache
+    _store_to_session_cache(state.session_id, state.query, state.result)
     
     return state
 
 def summarize_node(state: AgentState) -> AgentState:
-    logger.debug("Summarize node called")
-    transcript_text = ""
-    if state.transcript_segments:
-        transcript_text = "\n".join(state.transcript_segments)
-
-    history_text = ""
-    if state.history:
-        history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
+    """Summarize the video transcript considering chat history for context.
+    
+    Args:
+        state: Current agent state with transcript and history
         
-    # Safe prompt template to prevent injection
+    Returns:
+        Updated state with summary result
+    """
+    logger.debug("Executing summarize node")
+    
+    # Build text content (DRY: use helper function)
+    transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    history_text = _build_history_text(state.history)
+    
     summary_template = PromptTemplate(
         input_variables=["transcript", "history"],
         template="You are a helpful assistant. Summarize the following YouTube video transcript, considering the previous chat history for context.\n\n"
@@ -181,60 +280,76 @@ def summarize_node(state: AgentState) -> AgentState:
     )
     prompt = summary_template.format(transcript=transcript_text, history=history_text)
     
+    # Generate summary
     try:
         result = get_llm_response(prompt)
         state.result = extract_response_content(result)
+        logger.info(f"Summary generated ({len(state.result)} chars)")
     except Exception as e:
-        logger.error(f"❌ LLM API Error in summarize: {str(e)}")
-        state.result = f"Error: Could not generate summary - {str(e)}"
+        logger.error(f"LLM API call failed in summarize node: {type(e).__name__}: {str(e)}")
+        state.result = "Error: Failed to generate summary. The AI service is temporarily unavailable."
         return state
     
-    try:
-        query_text = extract_response_content(state.query)
-        rag.add_query(query_text, {"role": "user"})
-        rag.add_query(state.result, {"role": "assistant"})
-    except Exception as e:
-        logger.error(f"❌ RAG Query Storage Error in summarize: {str(e)}")
+    # Store to session cache
+    _store_to_session_cache(state.session_id, state.query, state.result)
+    
     return state
 
 def translate_node(state: AgentState) -> AgentState:
-    logger.debug("Translate node called")
-    transcript_text = ""
-    if state.transcript_segments:
-        transcript_text = "\n".join(state.transcript_segments)
+    """Translate the video transcript to the target language.
+    
+    Args:
+        state: Current agent state with transcript and target_language
+        
+    Returns:
+        Updated state with translation result
+    """
+    logger.debug("Executing translate node")
+    
+    # Build text content (DRY: use helper function)
+    transcript_text = "\n".join(state.transcript_segments) if state.transcript_segments else ""
+    history_text = _build_history_text(state.history)
 
-    history_text = ""
-    if state.history:
-        history_text = "\n".join([f'{m["role"]}: {m["content"]}' for m in state.history if m.get("role") and m.get("content")])
-
-    # Safe prompt template to prevent injection
     translate_template = PromptTemplate(
         input_variables=["target_language", "transcript", "history"],
-        template="You are a helpful assistant. Translate the following YouTube video transcript into {target_language}, considering the previous chat history for context.\n\n"
+        template="You are a helpful assistant. Translate the following YouTube video transcript into {target_language}, "
+                 "considering the previous chat history for context.\n\n"
                  "Transcript:\n{transcript}\n\n"
                  "Chat History:\n{history}\n\n"
                  "Translation:\n({target_language})"
     )
-    prompt = translate_template.format(target_language=state.target_language, transcript=transcript_text, history=history_text)
+    prompt = translate_template.format(
+        target_language=state.target_language,
+        transcript=transcript_text,
+        history=history_text
+    )
     
+    # Generate translation
     try:
         result = get_llm_response(prompt, target_language=state.target_language)
         state.result = extract_response_content(result)
+        logger.info(f"Translation generated to {state.target_language} ({len(state.result)} chars)")
     except Exception as e:
-        logger.error(f"❌ LLM API Error in translate: {str(e)}")
-        state.result = f"Error: Could not generate translation - {str(e)}"
+        logger.error(f"LLM API call failed in translate node: {type(e).__name__}: {str(e)}")
+        state.result = f"Error: Failed to translate to {state.target_language}. The AI service is temporarily unavailable."
         return state
 
-    try:
-        rag.add_query(f"translate video to {state.target_language}", {"role": "user"})
-        rag.add_query(state.result, {"role": "assistant"})
-    except Exception as e:
-        logger.error(f"❌ RAG Query Storage Error in translate: {str(e)}")
+    # Store to session cache
+    _store_to_session_cache(state.session_id, state.query, state.result)
+    
     return state
 
 def fallback_node(state: AgentState) -> AgentState:
-    logger.debug("Fallback node called")
-    state.result = "I didn't understand your query. Could you please rephrase?"
+    """Fallback handler when query cannot be categorized.
+    
+    Args:
+        state: Current agent state
+        
+    Returns:
+        Updated state with fallback message
+    """
+    logger.debug("Executing fallback node for unclassified query")
+    state.result = "I didn't understand your query. Could you please rephrase it more clearly? For example, you can ask me to answer questions, summarize the video, or translate it."
     return state
 
 
@@ -267,6 +382,16 @@ graph.add_edge("fallback",END)
 yt_agent_graph = graph.compile()
 
 def run_query(session_id: str, video_id: str, query: str) -> str:
+    """Execute a query against the video using the RAG agent pipeline.
+    
+    Args:
+        session_id: User session identifier for conversation tracking
+        video_id: YouTube video ID to query against
+        query: User's question or request
+        
+    Returns:
+        Assistant's response to the query
+    """
     logger.info(f"Running query for video: {video_id}, session: {session_id}")
     
     # Load memory state (includes conversation summary if any)
@@ -335,7 +460,7 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
         if updated_memory_state:
             logger.info(f"Memory state updated: {message_count} total messages in session cache")
     except Exception as e:
-        logger.warning(f"⚠️ Memory pruning skipped: {str(e)}")
+        logger.warning(f"Memory pruning skipped: {str(e)}")
     
     return assistant_message
 
@@ -357,26 +482,48 @@ def cleanup_video(video_id: str) -> bool:
 
 
 def cleanup_expired_sessions(days: int = 1) -> int:
-    """Periodically clean up expired sessions (default: inactive > 1 day)."""
+    """Periodically clean up expired sessions (default: inactive > 1 day).
+    
+    Args:
+        days: Number of days of inactivity before cleanup
+        
+    Returns:
+        Number of sessions cleaned up
+    """
     count = session_cache_manager.cleanup_expired_sessions(days=days)
     logger.info(f"Cleaned up {count} expired sessions")
     return count
 
 
 def cleanup_expired_videos(days: int = 7) -> int:
-    """Periodically clean up expired video caches (default: not accessed > 7 days)."""
+    """Periodically clean up expired video caches (default: not accessed > 7 days).
+    
+    Args:
+        days: Number of days of inactivity before cleanup
+        
+    Returns:
+        Number of videos cleaned up
+    """
     count = video_cache_manager.cleanup_expired_videos(days=days)
     logger.info(f"Cleaned up {count} expired video caches")
     return count
 
 
 def get_video_cache_stats() -> Dict[str, Any]:
-    """Get statistics about video cache usage."""
+    """Get statistics about video cache usage.
+    
+    Returns:
+        Dictionary with cache statistics (size, hit count, etc.)
+    """
     return video_cache_manager.get_cache_stats()
 
 
 def get_session_cache_stats() -> Dict[str, Any]:
-    """Get statistics about session cache usage."""
+    """Get statistics about session cache usage.
+    
+    Returns:
+        Dictionary with cache statistics (sessions, memory usage, etc.)
+    """
     return session_cache_manager.get_cache_stats()
 
 
