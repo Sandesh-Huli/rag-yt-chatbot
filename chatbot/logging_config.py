@@ -11,6 +11,7 @@ Features:
 import logging
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 import inspect
@@ -31,11 +32,13 @@ class StructuredFormatter(logging.Formatter):
             "line": record.lineno,
         }
         
-        # Add exception info if present
+        # Add exception info if present (SANITIZED to remove API keys)
         if record.exc_info:
+            exc_message = str(record.exc_info[1])
+            sanitized_message = sanitize_exception_message(exc_message)
             log_data["exception"] = {
                 "type": record.exc_info[0].__name__ if record.exc_info[0] else None,
-                "message": str(record.exc_info[1]),
+                "message": sanitized_message,
                 "traceback": self.formatException(record.exc_info),
             }
         
@@ -312,3 +315,33 @@ def log_with_context(
 
 # Global audit logger instance
 audit_logger = AuditLogger()
+
+
+def sanitize_exception_message(message: str) -> str:
+    """Sanitize exception messages to remove sensitive data (API keys, URLs with credentials).
+    
+    Args:
+        message: Raw exception message that may contain sensitive data
+        
+    Returns:
+        Sanitized message with API keys and credentials masked
+    """
+    if not message:
+        return message
+    
+    # Mask common API key patterns
+    patterns = [
+        (r'key=[^&\s"\']+', 'key=***'),  # key=xxx
+        (r'api[_-]?key["\']?\s*[:=]\s*["\']?[a-zA-Z0-9_-]+', 'api_key=***'),  # api_key=xxx
+        (r'authorization["\']?\s*[:=]\s*["\']?Bearer\s+[a-zA-Z0-9_.-]+', 'authorization=Bearer ***'),  # Bearer token
+        (r'google[_-]?api[_-]?key["\']?\s*[:=]\s*["\']?[a-zA-Z0-9_-]+', 'google_api_key=***'),  # Google API key
+        (r'AQ\.[a-zA-Z0-9_-]{50,}', 'AQ.***'),  # Google OAuth token format
+        (r'AIza[a-zA-Z0-9_-]{35}', 'AIza***'),  # Google API key format
+        (r'(?:mongodb|postgres|mysql)://[^@]+@', r'://***@'),  # Database connection strings
+    ]
+    
+    sanitized = message
+    for pattern, replacement in patterns:
+        sanitized = re.sub(pattern, replacement, sanitized, flags=re.IGNORECASE)
+    
+    return sanitized

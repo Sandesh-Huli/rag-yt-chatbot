@@ -21,7 +21,8 @@ MONGO_WAIT_QUEUE_TIMEOUT = int(os.getenv('MONGO_WAIT_QUEUE_TIMEOUT', '10000'))
 MONGO_SERVER_SELECTION_TIMEOUT = int(os.getenv('MONGO_SERVER_SELECTION_TIMEOUT', '5000'))
 
 # ============== API KEYS & AUTHENTICATION ==============
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')  # For Gemini LLM
+GOOGLE_SEARCH_KEY = os.getenv('GOOGLE_SEARCH_KEY')  # For Custom Search API
 GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
 JWT_SECRET = os.getenv('JWT_SECRET')
 SESSION_SECRET = os.getenv('SESSION_SECRET')
@@ -74,7 +75,7 @@ QUERY_MIN_LENGTH = int(os.getenv('QUERY_MIN_LENGTH', '1'))
 ORCHESTRATOR_QUERY_MAX_LENGTH = int(os.getenv('ORCHESTRATOR_QUERY_MAX_LENGTH', '1000'))
 
 # Required variables validation
-required_vars = ['MONGO_URI', 'GOOGLE_API_KEY', 'GOOGLE_CSE_ID', 'CORS_ORIGINS', 'JWT_SECRET', 'SESSION_SECRET']
+required_vars = ['MONGO_URI', 'GOOGLE_API_KEY', 'GOOGLE_SEARCH_KEY', 'GOOGLE_CSE_ID', 'CORS_ORIGINS', 'JWT_SECRET', 'SESSION_SECRET']
 missing_vars = [var for var in required_vars if not os.getenv(var)]
 
 if missing_vars:

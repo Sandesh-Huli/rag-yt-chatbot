@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 required_env_vars = [
     'MONGO_URI',
     'GOOGLE_API_KEY',
+    'GOOGLE_SEARCH_KEY',
     'GOOGLE_CSE_ID',
     'CORS_ORIGINS',
 ]
@@ -57,7 +58,7 @@ logger.info('✅ Security validation passed: JWT and session secrets are strong'
 class NewChatRequest(BaseModel):
     video_id: str = Field(..., description="YouTube video ID (11 characters)")
     query: str = Field(..., min_length=1, max_length=5000, description="User query (1-5000 characters)")
-    user_id: Optional[str] = Field(None, description="User ID (UUID format)")
+    user_id: Optional[str] = Field(None, description="User ID (MongoDB ObjectId or UUID)")
     
     @field_validator('video_id')
     @classmethod
@@ -77,7 +78,7 @@ class NewChatRequest(BaseModel):
 class ResumeChatRequest(BaseModel):
     video_id: str = Field(..., description="YouTube video ID (11 characters)")
     query: str = Field(..., min_length=1, max_length=5000, description="User query (1-5000 characters)")
-    user_id: Optional[str] = Field(None, description="User ID (UUID format)")
+    user_id: Optional[str] = Field(None, description="User ID (MongoDB ObjectId or UUID)")
     
     @field_validator('video_id')
     @classmethod
@@ -183,9 +184,8 @@ async def new_chat(data: NewChatRequest):
         session_id = str(uuid.uuid4())
         logger.info(f"New chat - Session: {session_id}, Video: {data.video_id[:11]}, User: {data.user_id}")
         
-        # Create session with user_id if provided
-        if data.user_id:
-            db.create_session(video_id=data.video_id, session_id=session_id, user_id=data.user_id)
+        # Always create session with user_id to ensure it's stored in DB (Issue: fix)
+        db.create_session(video_id=data.video_id, session_id=session_id, user_id=data.user_id)
         
         response = run_query(session_id, data.video_id, data.query)
         logger.info(f"Response generated for session {session_id}")

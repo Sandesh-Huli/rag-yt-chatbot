@@ -1,4 +1,15 @@
-"""Input validators for request models using Pydantic field validators."""
+"""
+IMMEDIATE FIX: Update FastAPI validators to accept MongoDB ObjectId format
+
+File: chatbot/models/validators.py
+
+This fix allows FastAPI to accept both:
+1. MongoDB ObjectId format (24 hex characters): "507f1f77bcf86cd799439011"
+2. UUID format (standard): "550e8400-e29b-41d4-a716-446655440000"
+
+This resolves the 422 error when Express sends ObjectId strings to FastAPI.
+"""
+
 import re
 import uuid
 from typing import Optional
@@ -14,6 +25,7 @@ VALID_LANGUAGE_CODES = {
 }
 
 YOUTUBE_VIDEO_ID_PATTERN = r'^[a-zA-Z0-9_-]{11}$'
+MONGODB_OBJECTID_PATTERN = r'^[a-f0-9]{24}$'  # MongoDB ObjectId is 24 hex chars
 
 
 def validate_video_id(value: str) -> str:
@@ -78,20 +90,20 @@ def validate_query(value: str) -> str:
 
 
 def validate_user_id(value: Optional[str]) -> Optional[str]:
-    """Validate user ID format (MongoDB ObjectId or UUID).
+    """Validate user ID format - accepts BOTH MongoDB ObjectId and UUID formats.
     
-    Accepts both formats:
-    - MongoDB ObjectId: 24 hex characters (e.g., 507f1f77bcf86cd799439011)
-    - UUID: standard UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000)
+    This is crucial for Express→FastAPI integration where user_id comes from MongoDB ObjectId.
     
     Args:
-        value: User ID to validate (MongoDB ObjectId, UUID, or None)
+        value: User ID to validate
+               - MongoDB ObjectId: 24 character hex string (e.g., "507f1f77bcf86cd799439011")
+               - UUID: standard format (e.g., "550e8400-e29b-41d4-a716-446655440000")
         
     Returns:
         The validated user ID or None
         
     Raises:
-        ValueError: If user ID is neither valid MongoDB ObjectId nor UUID
+        ValueError: If user ID is not a valid ObjectId or UUID
     """
     if value is None:
         return None
@@ -99,20 +111,50 @@ def validate_user_id(value: Optional[str]) -> Optional[str]:
     if not value:
         raise ValueError("user_id cannot be empty string (use None instead)")
     
-    # Convert to string to handle any type coercion
-    value_str = str(value).strip()
+    # Check if it's a valid MongoDB ObjectId (24 hex characters)
+    if re.match(MONGODB_OBJECTID_PATTERN, value.lower()):
+        return value
     
-    # Check if MongoDB ObjectId format (24 hex characters, case-insensitive)
-    if len(value_str) == 24 and all(c in '0123456789abcdefABCDEF' for c in value_str):
-        return value_str
-    
-    # Check if UUID format
+    # Try to parse as UUID
     try:
-        uuid.UUID(value_str)
-        return value_str
+        uuid.UUID(value)
+        return value
+    except (ValueError, AttributeError):
+        pass
+    
+    # Neither format matched
+    raise ValueError(
+        f"user_id must be either a valid MongoDB ObjectId (24 hex characters) "
+        f"or a standard UUID (e.g., 550e8400-e29b-41d4-a716-446655440000) "
+        f"(got: {value})"
+    )
+
+
+def validate_session_id(value: Optional[str]) -> Optional[str]:
+    """Validate session ID format (UUID).
+    
+    Args:
+        value: Session ID to validate (should be valid UUID or None)
+        
+    Returns:
+        The validated session ID or None
+        
+    Raises:
+        ValueError: If session ID is not a valid UUID
+    """
+    if value is None:
+        return None
+    
+    if not value:
+        raise ValueError("session_id cannot be empty string (use None instead)")
+    
+    try:
+        uuid.UUID(value)
+        return value
     except (ValueError, AttributeError):
         raise ValueError(
-            f"user_id must be either a valid MongoDB ObjectId (24 hex chars) or UUID format (got: {value_str})"
+            f"session_id must be a valid UUID (e.g., 550e8400-e29b-41d4-a716-446655440000) "
+            f"(got: {value})"
         )
 
 
@@ -134,50 +176,13 @@ def validate_language_code(value: Optional[str]) -> Optional[str]:
     if not value:
         raise ValueError("language_code cannot be empty string (use None instead)")
     
-    if len(value) > 10:
-        raise ValueError("language_code exceeds maximum length of 10 characters")
+    if len(value) > 5:
+        raise ValueError("language_code exceeds maximum length of 5 characters")
     
-    value_lower = value.lower()
-    if value_lower not in VALID_LANGUAGE_CODES:
+    if value.lower() not in VALID_LANGUAGE_CODES:
         raise ValueError(
-            f"language_code '{value}' is not a valid ISO 639-1 language code. "
-            f"Valid codes include: en, es, fr, de, it, pt, ja, zh, ko, etc."
+            f"language_code '{value}' is not a valid ISO 639-1 code. "
+            f"Valid codes: {', '.join(sorted(VALID_LANGUAGE_CODES[:10]))}... (see {len(VALID_LANGUAGE_CODES)} total)"
         )
     
-    return value_lower
-
-
-def validate_session_id(value: str) -> str:
-    """Validate session ID format (MongoDB ObjectId or UUID).
-    
-    Accepts both formats:
-    - MongoDB ObjectId: 24 hex characters (e.g., 507f1f77bcf86cd799439011)
-    - UUID: standard UUID format (e.g., 550e8400-e29b-41d4-a716-446655440000)
-    
-    Args:
-        value: Session ID to validate
-        
-    Returns:
-        The validated session ID
-        
-    Raises:
-        ValueError: If session ID is neither valid MongoDB ObjectId nor UUID
-    """
-    if not value:
-        raise ValueError("session_id cannot be empty")
-    
-    # Convert to string and strip whitespace
-    value_str = str(value).strip()
-    
-    # Check if MongoDB ObjectId format (24 hex characters, case-insensitive)
-    if len(value_str) == 24 and all(c in '0123456789abcdefABCDEF' for c in value_str):
-        return value_str
-    
-    # Check if UUID format
-    try:
-        uuid.UUID(value_str)
-        return value_str
-    except (ValueError, AttributeError):
-        raise ValueError(
-            f"session_id must be either a valid MongoDB ObjectId (24 hex chars) or UUID format (got: {value_str})"
-        )
+    return value

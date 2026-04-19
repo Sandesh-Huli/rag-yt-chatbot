@@ -3,9 +3,9 @@ from typing import Literal
 import os
 from chatbot.config import LLM_MODEL, LLM_TEMPERATURE, ORCHESTRATOR_QUERY_MAX_LENGTH
 from langchain_google_genai import ChatGoogleGenerativeAI
-import logging
+from chatbot.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class Orchestrator(BaseModel):
     mode: Literal["qa", "summarize", "translate", "fallback"] = Field(
