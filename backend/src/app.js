@@ -25,7 +25,6 @@ app.use(cors({
 }));
 app.use(cookieParser())
 
-// Setup structured request logging middleware (Issue 40)
 requestLoggingMiddleware(app);
 
 // Session configuration with env variables
@@ -57,7 +56,6 @@ app.get('/',(req,res)=>{
     res.send('Backend is yet to be built')
 })
 
-// Setup error logging middleware (Issue 40)
 errorLoggingMiddleware(app);
 
 export default app;

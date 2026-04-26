@@ -1,13 +1,7 @@
-"""
-Centralized configuration for YouTube Chatbot RAG pipeline.
-All environment variables and configuration values should be managed here.
-"""
-
 import os
 from dotenv import load_dotenv
 from chatbot.logging_config import setup_structured_logging, get_logger
 
-# Setup structured logging (Issue 40)
 logger = setup_structured_logging("yt-chatbot")
 
 # Load environment variables ONCE at module import time
@@ -79,8 +73,6 @@ required_vars = ['MONGO_URI', 'GOOGLE_API_KEY', 'GOOGLE_SEARCH_KEY', 'GOOGLE_CSE
 missing_vars = [var for var in required_vars if not os.getenv(var)]
 
 if missing_vars:
-    logger.error(f'❌ Missing required environment variables: {", ".join(missing_vars)}')
-    logger.error('Please check your .env file and refer to .env.example')
-    # Don't exit here - let the application handle it
+    logger.error(f'Missing environment variables: {", ".join(missing_vars)}')
 else:
-    logger.info('✅ All required configuration variables loaded successfully')
+    logger.info('Configuration loaded')
