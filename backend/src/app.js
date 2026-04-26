@@ -44,6 +44,12 @@ app.use(session({
         sameSite:sessionSameSite
     }
 }));
+
+// Health check endpoint for Docker/K8s probes (Blocker 3)
+app.get('/health', (req, res) => {
+    res.json({ status: 'healthy', service: 'backend' })
+});
+
 app.use('/chats',chatRoutes)
 app.use('/user',userRouter)
 

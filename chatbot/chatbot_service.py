@@ -97,6 +97,12 @@ class ResumeChatRequest(BaseModel):
 
 app = FastAPI()
 
+# Health check endpoint for Docker/K8s probes (Blocker 2)
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container orchestration."""
+    return {"status": "healthy", "service": "chatbot"}
+
 # Parse CORS origins from environment variable
 cors_origins_str = os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:5174,http://localhost:5175')
 cors_origins = [origin.strip() for origin in cors_origins_str.split(',')]
@@ -221,8 +227,13 @@ async def delete_chat(session_id: str, user_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-    
-    
-    
-    
-    
+# Entry point for container execution (Blocker 1)
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info"
+    )
