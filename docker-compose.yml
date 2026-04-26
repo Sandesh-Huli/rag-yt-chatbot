@@ -1,0 +1,101 @@
+# ==============================================
+#  Docker Compose — RAG YouTube Chatbot
+#  Services: MongoDB, Backend, Chatbot, Frontend
+# ==============================================
+version: "3.8"
+
+services:
+  # ---- MongoDB ----
+  mongodb:
+    image: mongo:6.0-jammy
+    container_name: rag-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---- Backend (Node.js / Express) ----
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=${BACKEND_PORT:-5000}
+      - MONGO_URI=${MONGO_URI}
+      - FASTAPI_URL=${FASTAPI_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    ports:
+      - "${BACKEND_PORT:-5000}:${BACKEND_PORT:-5000}"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ---- Chatbot (Python / FastAPI) ----
+  chatbot:
+    build:
+      context: .
+      dockerfile: chatbot/Dockerfile
+    container_name: rag-chatbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=${CHATBOT_PORT:-8000}
+      - MONGO_URI=${MONGO_URI}
+      - BACKEND_URL=${BACKEND_URL}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_SEARCH_KEY=${GOOGLE_SEARCH_KEY}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    ports:
+      - "${CHATBOT_PORT:-8000}:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ---- Frontend (Vite React) ----
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+      - chatbot
+    networks:
+      - app-network
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
