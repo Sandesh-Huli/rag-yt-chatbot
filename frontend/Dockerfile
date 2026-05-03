@@ -5,6 +5,14 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Accept build arguments
+ARG VITE_BACKEND_URI
+ARG VITE_AUTH_BACKEND_URI
+
+# Set as environment variables for Vite
+ENV VITE_BACKEND_URI=$VITE_BACKEND_URI
+ENV VITE_AUTH_BACKEND_URI=$VITE_AUTH_BACKEND_URI
+
 # Copy dependency manifests first (cache layer)
 COPY package*.json ./
 RUN npm ci
