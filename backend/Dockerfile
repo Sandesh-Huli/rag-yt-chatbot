@@ -14,6 +14,9 @@ COPY . .
 
 EXPOSE 5000
 
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+USER appuser
+
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5000/ || exit 1
 

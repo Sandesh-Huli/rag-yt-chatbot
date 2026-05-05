@@ -6,7 +6,7 @@ metadata:
   labels:
     app: chatbot
 spec:
-  replicas: 2
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -23,9 +23,12 @@ spec:
       containers:
         - name: chatbot
           image: chatbot:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
+          volumeMounts:
+            - name: rag-store-volume
+              mountPath: /app/rag_store
           env:
             - name: PORT
               valueFrom:
@@ -81,13 +84,17 @@ spec:
               cpu: "500m"
           livenessProbe:
             httpGet:
-              path: /docs
+              path: /health
               port: 8000
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
-              path: /docs
+              path: /health
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: rag-store-volume
+          persistentVolumeClaim:
+            claimName: rag-store-pvc

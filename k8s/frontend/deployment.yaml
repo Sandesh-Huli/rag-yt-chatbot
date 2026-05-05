@@ -23,11 +23,11 @@ spec:
       containers:
         - name: frontend
           image: frontend:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
           env:
-            - name: REACT_APP_BACKEND_URL
+            - name: VITE_BACKEND_URL
               value: "http://backend:5000"
           resources:
             requests:
