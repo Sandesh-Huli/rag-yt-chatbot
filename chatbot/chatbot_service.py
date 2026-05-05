@@ -125,6 +125,10 @@ mongo_uri = os.getenv('MONGO_URI', '')
 mongo_safe = f"mongodb://{mongo_uri.split('://')[-1][:20]}..." if mongo_uri else 'Not set'
 logger.info(f'📊 Database connection: {mongo_safe}')
 
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
+
 @app.get("/chats/sessions")
 async def list_sessions(user_id: Optional[str] = None):
     try:

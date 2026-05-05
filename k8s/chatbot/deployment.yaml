@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot
+  namespace: rag-chatbot
+  labels:
+    app: chatbot
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: chatbot
+  template:
+    metadata:
+      labels:
+        app: chatbot
+    spec:
+      containers:
+        - name: chatbot
+          image: chatbot:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: rag-store-volume
+              mountPath: /app/rag_store
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: CHATBOT_PORT
+            - name: BACKEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: BACKEND_URL
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MONGO_URI
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: GOOGLE_API_KEY
+            - name: GOOGLE_SEARCH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: GOOGLE_SEARCH_KEY
+            - name: GOOGLE_CSE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: GOOGLE_CSE_ID
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: JWT_SECRET
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: SESSION_SECRET
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: CORS_ORIGINS
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: rag-store-volume
+          persistentVolumeClaim:
+            claimName: rag-store-pvc
