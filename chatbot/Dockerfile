@@ -5,6 +5,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV PIP_DEFAULT_TIMEOUT=300 \
+  PIP_RETRIES=10 \
+  PIP_NO_CACHE_DIR=1 \
+  PIP_PROGRESS_BAR=off
+
 # Install system dependencies needed by some Python packages
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc g++ && \
@@ -12,7 +17,8 @@ RUN apt-get update && \
 
 # Copy requirements from project root (mounted via build context)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip setuptools wheel && \
+  pip install --default-timeout=300 --retries=10 -r requirements.txt
 
 # Copy the chatbot package
 COPY chatbot/ ./chatbot/

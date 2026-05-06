@@ -5,6 +5,8 @@ metadata:
   namespace: rag-chatbot
   labels:
     app: chatbot
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: chatbot
 spec:
   replicas: 1
   strategy:
@@ -19,11 +21,22 @@ spec:
     metadata:
       labels:
         app: chatbot
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8000'
+        prometheus.io/path: '/metrics'
     spec:
+      serviceAccountName: app-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: chatbot
           image: chatbot:latest
-          imagePullPolicy: Always
+          imagePullPolicy: Never
           ports:
             - containerPort: 8000
           volumeMounts:
@@ -94,6 +107,12 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
       volumes:
         - name: rag-store-volume
           persistentVolumeClaim:

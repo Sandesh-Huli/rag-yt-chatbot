@@ -1,0 +1,85 @@
+---
+# Service Account for the application
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: app-service-account
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: service-account
+
+---
+# Role for backend and frontend (read-only access to configmaps/secrets)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-role
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+# RoleBinding to attach Role to ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-rolebinding
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: app-role
+subjects:
+  - kind: ServiceAccount
+    name: app-service-account
+    namespace: rag-chatbot
+
+---
+# Monitoring Role - for Prometheus
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: prometheus-role
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+
+---
+# RoleBinding for Prometheus
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: prometheus-rolebinding
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: prometheus-role
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-service-account
+    namespace: rag-chatbot

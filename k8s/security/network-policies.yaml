@@ -1,0 +1,211 @@
+---
+# Default Deny all ingress - deny all traffic by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Allow frontend to receive traffic from ingress
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-ingress
+  namespace: rag-chatbot
+  labels:
+    app: frontend
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+
+---
+# Allow backend to receive traffic from ingress and frontend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-ingress
+  namespace: rag-chatbot
+  labels:
+    app: backend
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 5000
+
+---
+# Allow chatbot to receive traffic from ingress and backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-chatbot-ingress
+  namespace: rag-chatbot
+  labels:
+    app: chatbot
+spec:
+  podSelector:
+    matchLabels:
+      app: chatbot
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 8000
+
+---
+# Allow MongoDB to receive traffic from backend and chatbot
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mongodb-ingress
+  namespace: rag-chatbot
+  labels:
+    app: mongodb
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+        - podSelector:
+            matchLabels:
+              app: chatbot
+      ports:
+        - protocol: TCP
+          port: 27017
+
+---
+# Allow all pods to access external DNS (UDP port 53)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-access
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+
+---
+# Allow all pods to access external HTTPS for API calls
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-https
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchExpressions:
+              - key: name
+                operator: NotIn
+                values: ["rag-chatbot"]
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# Allow inter-pod communication within namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-communication
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+
+---
+# Allow Prometheus to scrape metrics from all pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: rag-chatbot
+  labels:
+    app: prometheus
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 3000

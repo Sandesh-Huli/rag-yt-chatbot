@@ -5,6 +5,8 @@ metadata:
   namespace: rag-chatbot
   labels:
     app: backend
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: backend
 spec:
   replicas: 2
   strategy:
@@ -19,11 +21,22 @@ spec:
     metadata:
       labels:
         app: backend
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '5000'
+        prometheus.io/path: '/metrics'
     spec:
+      serviceAccountName: app-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: backend
           image: backend:latest
-          imagePullPolicy: Always
+          imagePullPolicy: Never
           ports:
             - containerPort: 5000
           env:
@@ -81,3 +94,9 @@ spec:
               port: 5000
             initialDelaySeconds: 5
             periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
