@@ -25,6 +25,10 @@ app.use(cors({
 }));
 app.use(cookieParser())
 
+<<<<<<< Updated upstream
+=======
+// Setup structured request logging middleware (Issue 40)
+>>>>>>> Stashed changes
 requestLoggingMiddleware(app);
 
 // Session configuration with env variables
@@ -43,12 +47,15 @@ app.use(session({
         sameSite:sessionSameSite
     }
 }));
+<<<<<<< Updated upstream
 
 // Health check endpoint for Docker/K8s probes (Blocker 3)
 app.get('/health', (req, res) => {
     res.json({ status: 'healthy', service: 'backend' })
 });
 
+=======
+>>>>>>> Stashed changes
 app.use('/chats',chatRoutes)
 app.use('/user',userRouter)
 
@@ -56,6 +63,10 @@ app.get('/',(req,res)=>{
     res.send('Backend is yet to be built')
 })
 
+<<<<<<< Updated upstream
+=======
+// Setup error logging middleware (Issue 40)
+>>>>>>> Stashed changes
 errorLoggingMiddleware(app);
 
 export default app;
