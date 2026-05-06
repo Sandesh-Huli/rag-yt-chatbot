@@ -1,3 +1,16 @@
+<<<<<<< Updated upstream
+=======
+"""
+Structured logging configuration (Issue 40) and Audit logging (Issue 34).
+
+Features:
+- JSON structured logging format
+- Configurable log levels via environment variables
+- Audit logging for security events
+- Thread-safe logging with context tracking
+"""
+
+>>>>>>> Stashed changes
 import logging
 import json
 import os
@@ -6,7 +19,13 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 import inspect
 
+<<<<<<< Updated upstream
 class StructuredFormatter(logging.Formatter):
+=======
+
+class StructuredFormatter(logging.Formatter):
+    """JSON formatter for structured logging output (Issue 40)."""
+>>>>>>> Stashed changes
     
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON."""
@@ -38,7 +57,18 @@ class StructuredFormatter(logging.Formatter):
 
 
 class AuditLogger:
+<<<<<<< Updated upstream
     """Audit logging for security events."""
+=======
+    """Audit logging for security-critical events (Issue 34).
+    
+    Tracks:
+    - Who accessed what (user_id, endpoint, resource)
+    - When (timestamp)
+    - From where (IP address, user_agent)
+    - Impact (action, result, error)
+    """
+>>>>>>> Stashed changes
     
     def __init__(self, name: str = "audit"):
         self.logger = logging.getLogger(f"{name}.audit")
@@ -47,17 +77,29 @@ class AuditLogger:
     def log_auth_attempt(
         self,
         email: str,
+<<<<<<< Updated upstream
         action: str,
+=======
+        action: str,  # "login", "register", "logout"
+>>>>>>> Stashed changes
         success: bool,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
+<<<<<<< Updated upstream
         """Log authentication attempt.
         
         Args:
             email: User email
             action: Auth action (login/register/logout)
+=======
+        """Log authentication attempt (Issue 34).
+        
+        Args:
+            email: User email address
+            action: Authentication action (login/register/logout)
+>>>>>>> Stashed changes
             success: Whether action succeeded
             ip_address: Client IP address
             user_agent: Client user agent
