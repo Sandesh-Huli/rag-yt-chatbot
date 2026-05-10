@@ -2,11 +2,25 @@ name: CI - Build & Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**', 'fix/**']
   pull_request:
     branches: [main]
 
 jobs:
+  security-scan:
+    name: Security Scan (Secrets Detection)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks secrets scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   lint-and-build-backend:
     name: Lint & Build Backend
     runs-on: ubuntu-latest

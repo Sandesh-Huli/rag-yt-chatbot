@@ -56,19 +56,6 @@ class AgentState:
 # --------------- Setup ---------------
 db = DBService()
 
-<<<<<<< Updated upstream
-def _build_history_text(history: Optional[List[Dict[str, str]]]) -> str:
-    """Format chat history for LLM prompt."""
-=======
-def extract_response_content(response: Any) -> str:
-    """Extract string content from LLM response object or string."""
-    if hasattr(response, "content"):
-        return response.content
-    return str(response)
-
-
-# ============= HELPER FUNCTIONS (Issue 16: Deduplication) =============
-
 def _build_history_text(history: Optional[List[Dict[str, str]]]) -> str:
     """Build formatted history text from messages (used in qa, summarize, translate nodes).
     
@@ -78,7 +65,6 @@ def _build_history_text(history: Optional[List[Dict[str, str]]]) -> str:
     Returns:
         Formatted history string for LLM prompt
     """
->>>>>>> Stashed changes
     if not history:
         return ""
     
@@ -90,9 +76,6 @@ def _build_history_text(history: Optional[List[Dict[str, str]]]) -> str:
 
 
 def _store_to_session_cache(session_id: str, query: str, result: str) -> None:
-<<<<<<< Updated upstream
-    """Cache message pair to session memory."""
-=======
     """Store query and response to session cache for per-session memory.
     
     Args:
@@ -103,7 +86,6 @@ def _store_to_session_cache(session_id: str, query: str, result: str) -> None:
     Raises:
         Logs error but doesn't raise (graceful degradation)
     """
->>>>>>> Stashed changes
     try:
         session_cache = session_cache_manager.get_session_cache(session_id)
         session_cache.add_message(query, {"role": "user"})
@@ -124,9 +106,6 @@ def _store_to_session_cache(session_id: str, query: str, result: str) -> None:
 
 
 def _retrieve_relevant_chunks(video_id: str, query: str, top_k: int = 5) -> str:
-<<<<<<< Updated upstream
-    """Retrieve relevant transcript chunks via semantic search."""
-=======
     """Retrieve most relevant transcript chunks using semantic search (Issue 23).
     
     Replaces full transcript with top-k retrieved chunks to reduce token usage.
@@ -140,11 +119,9 @@ def _retrieve_relevant_chunks(video_id: str, query: str, top_k: int = 5) -> str:
     Returns:
         Formatted string of relevant chunks with fallback to full transcript
     """
->>>>>>> Stashed changes
     try:
         video_cache = video_cache_manager.get_video_cache(video_id)
-        
-        # If transcript is indexed in FAISS, retrieve semantically relevant chunks
+        # If video is indexed in FAISS, retrieve semantically relevant chunks
         if video_cache.is_indexed():
             results = video_cache.retrieve_transcript(query, top_k=top_k)
             if results:

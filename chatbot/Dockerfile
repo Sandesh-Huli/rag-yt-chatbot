@@ -16,7 +16,11 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy requirements from project root (mounted via build context)
+# COPY requirements.txt .
+# RUN python -m pip install --upgrade pip setuptools wheel && \
+#   pip install --default-timeout=300 --retries=10 -r requirements.txt
 COPY requirements.txt .
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
 RUN python -m pip install --upgrade pip setuptools wheel && \
   pip install --default-timeout=300 --retries=10 -r requirements.txt
 

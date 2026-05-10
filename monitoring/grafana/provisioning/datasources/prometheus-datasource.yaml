@@ -1,0 +1,28 @@
+# Grafana Datasource Provisioning for Prometheus
+# This file auto-configures Prometheus as a datasource in Grafana
+# Place in: monitoring/grafana/provisioning/datasources/
+
+apiVersion: 1
+
+# List of datasources to insert/update
+datasources:
+  # Prometheus datasource for metrics collection
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    password: ""
+    user: ""
+    database: ""
+    basicAuth: false
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+      exemplarTraceIdDestinations:
+        - name: TraceID
+          url: 'http://jaeger:16686/search?q=$${__value.raw}'
+    secureJsonData: {}
+    editable: true
+
+# List of datasource to delete
+deleteDatasources: []

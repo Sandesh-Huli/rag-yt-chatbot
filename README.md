@@ -5,18 +5,6 @@ This project is an **agentic Retrieval-Augmented Generation (RAG) chatbot** for 
 
 ---
 
-<<<<<<< Updated upstream
-## Tech Stack
-
-- **LangChain** - LLM integration, text processing
-- **LangGraph** - Agent orchestration
-- **youtube-transcript-api** - Transcript fetching
-- **Gemini API** - LLM & embeddings
-- **FAISS** - Vector similarity search
-- **MongoDB** - Chat history storage
-- **Express.js** - Backend server
-- **React/Vite** - Frontend
-=======
 ## Frameworks and Libraries Used
 
 - **[LangChain](https://github.com/langchain-ai/langchain):** For LLM integration, text splitting, and tool abstraction.
@@ -27,7 +15,6 @@ This project is an **agentic Retrieval-Augmented Generation (RAG) chatbot** for 
 - **[python-dotenv](https://github.com/theskumar/python-dotenv):** For loading environment variables from a `.env` file.
 - **[nltk](https://www.nltk.org/):** For sentence tokenization (if used in chunking).
 - **Standard Python libraries:** `os`, `dataclasses`, `typing`, etc.
->>>>>>> Stashed changes
 
 ---
 

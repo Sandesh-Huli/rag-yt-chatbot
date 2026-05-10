@@ -125,12 +125,19 @@ class ResumeChatRequest(BaseModel):
 
 app = FastAPI()
 
-<<<<<<< Updated upstream
-# Health check endpoint for Docker/K8s probes (Blocker 2)
+# Health check endpoint for Docker/K8s probes
 @app.get("/health")
 async def health_check():
     """Health check endpoint for container orchestration."""
     return {"status": "healthy", "service": "chatbot"}
+
+@app.get("/metrics")
+async def metrics():
+    from fastapi.responses import Response
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
 
 # Parse CORS origins from environment variable
 cors_origins_str = os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:5174,http://localhost:5175')
@@ -153,13 +160,6 @@ logger.info(f'✅ CORS configured for origins: {cors_origins}')
 mongo_uri = os.getenv('MONGO_URI', '')
 mongo_safe = f"mongodb://{mongo_uri.split('://')[-1][:20]}..." if mongo_uri else 'Not set'
 logger.info(f'📊 Database connection: {mongo_safe}')
-
-@app.get("/health")
-async def health_check():
-    return {"status": "ok"}
-
-=======
->>>>>>> Stashed changes
 @app.get("/chats/sessions")
 async def list_sessions(user_id: Optional[str] = None):
     try:
@@ -288,8 +288,7 @@ async def delete_chat(session_id: str, user_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-<<<<<<< Updated upstream
-# Entry point for container execution (Blocker 1)
+# Entry point for container execution
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
@@ -299,10 +298,3 @@ if __name__ == "__main__":
         port=port,
         log_level="info"
     )
-=======
-    
-    
-    
-    
-    
->>>>>>> Stashed changes

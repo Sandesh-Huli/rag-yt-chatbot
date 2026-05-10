@@ -1,0 +1,212 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: rag-chatbot
+data:
+  alert-rules.yml: |
+    groups:
+      - name: pod-health
+        interval: 15s
+        rules:
+          - alert: PodNotReady
+            expr: kube_pod_status_ready{namespace="rag-chatbot",condition="false"} == 1
+            for: 1m
+            labels:
+              severity: critical
+              component: kubernetes
+            annotations:
+              summary: "Pod {{ $labels.pod }} is not ready in namespace rag-chatbot"
+              description: |
+                Pod {{ $labels.pod }} has been in NotReady state for more than 1 minute.
+                
+                This indicates the pod failed its readiness probe and may not be receiving traffic.
+                
+                Steps to investigate:
+                1. Check pod status: kubectl describe pod {{ $labels.pod }} -n rag-chatbot
+                2. Review pod events for specific errors
+                3. Check pod logs: kubectl logs {{ $labels.pod }} -n rag-chatbot
+                4. If crashing, check previous logs: kubectl logs {{ $labels.pod }} --previous -n rag-chatbot
+                5. Verify resource limits are not exceeded: kubectl top pods -n rag-chatbot
+                
+                Common causes:
+                - Image pull failure
+                - Application startup error
+                - Liveness probe misconfiguration
+                - Dependency service not ready (e.g., MongoDB)
+                - Insufficient resources (memory/CPU)
+
+          - alert: PodCrashLooping
+            expr: rate(kube_pod_container_status_restarts_total{namespace="rag-chatbot"}[5m]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: kubernetes
+            annotations:
+              summary: "Pod {{ $labels.pod }} is crash looping"
+              description: |
+                Container {{ $labels.container }} in pod {{ $labels.pod }} is restarting repeatedly.
+                
+                This indicates the application is crashing on startup or immediately after initialization.
+                
+                Steps to investigate:
+                1. Get pod description and restart count: kubectl describe pod {{ $labels.pod }} -n rag-chatbot
+                2. Get exit code: kubectl get pod {{ $labels.pod }} -n rag-chatbot -o jsonpath='{.status.containerStatuses[0].lastState.terminated.exitCode}'
+                3. Check previous logs for error: kubectl logs {{ $labels.pod }} --previous -n rag-chatbot
+                4. Review recent code changes
+                
+                Common causes by exit code:
+                - Exit 1: Application error (check logs)
+                - Exit 127: Command not found (check Dockerfile CMD/ENTRYPOINT)
+                - Exit 134: SIGABRT (assertion failure, memory corruption)
+                - Exit 137: SIGKILL/OOMKilled (increase memory limit)
+                
+                Resolution: Fix application bug, update environment variables, or increase resource limits.
+
+      - name: chatbot-performance
+        interval: 15s
+        rules:
+          - alert: HighQueryLatency
+            expr: histogram_quantile(0.95, rate(chatbot_query_duration_seconds_bucket[5m])) > 10
+            for: 2m
+            labels:
+              severity: warning
+              component: chatbot
+            annotations:
+              summary: "Chatbot query latency p95 is above 10 seconds"
+              description: |
+                95th percentile query latency has exceeded 10 seconds for the past 2 minutes.
+                
+                This indicates users are experiencing slow response times from the chatbot service.
+                
+                P95 Latency: {{ $value | humanizeDuration }}
+                
+                Steps to investigate:
+                1. Check real-time latency: http://localhost:3001 (Grafana) → Query Latency p95 panel
+                2. Check chatbot logs for slow operations: kubectl logs -n rag-chatbot -l app=chatbot --tail=50
+                3. Verify Google Gemini API status: https://status.cloud.google.com/
+                4. Check MongoDB performance: kubectl exec mongodb-0 -n rag-chatbot -- mongosh admin --eval "db.currentOp()"
+                5. Monitor CPU/memory: kubectl top pods -n rag-chatbot -l app=chatbot
+                
+                Common causes:
+                - Google Gemini API is slow or rate-limited
+                - Embedding model processing slow (sentence-transformers)
+                - MongoDB query slow due to overload
+                - Network latency between services
+                - Insufficient CPU/memory allocation
+                
+                Resolution: Check API quotas, optimize prompts, increase resources, or wait for external service to recover.
+
+          - alert: HighErrorRate
+            expr: (rate(chatbot_errors_total[5m]) / rate(chatbot_queries_total[5m])) > 0.05
+            for: 2m
+            labels:
+              severity: warning
+              component: chatbot
+            annotations:
+              summary: "Chatbot error rate is above 5%"
+              description: |
+                The chatbot error rate has exceeded 5% (more than 1 in 20 queries failing) for the past 2 minutes.
+                
+                Error Rate: {{ ($value * 100) | humanize }}%
+                Errors/min: {{ rate(chatbot_errors_total[5m]) | humanize }}
+                
+                Steps to investigate:
+                1. Check error rate trend: http://localhost:3001 (Grafana) → Error Rate panel
+                2. Examine recent error logs: kubectl logs -n rag-chatbot -l app=chatbot | grep -i error | tail -20
+                3. Check error breakdown by type: kubectl exec chatbot-0 -n rag-chatbot -- curl http://localhost:8000/metrics | grep chatbot_errors_total
+                4. Verify Google API key: kubectl get secret chatbot-secrets -n rag-chatbot -o jsonpath='{.data.GOOGLE_API_KEY}'
+                5. Check API quota on Google Cloud Console: https://console.cloud.google.com/
+                
+                Common causes:
+                - Google API key invalid or expired (401 Unauthorized)
+                - API quota exceeded (429 Too Many Requests)
+                - Invalid user input causing validation errors
+                - MongoDB connection lost
+                - External API unreachable
+                
+                Resolution: Verify credentials, increase quota, fix input validation, or restart service.
+
+      - name: infrastructure
+        interval: 15s
+        rules:
+          - alert: HighMemoryUsage
+            expr: (container_memory_usage_bytes{namespace="rag-chatbot"} / container_spec_memory_limit_bytes{namespace="rag-chatbot"}) > 0.8
+            for: 5m
+            labels:
+              severity: warning
+              component: infrastructure
+            annotations:
+              summary: "Container {{ $labels.container }} memory usage is above 80% of limit"
+              description: |
+                Container {{ $labels.container }} in pod {{ $labels.pod }} is using {{ ($value * 100) | humanize }}% of its memory limit.
+                
+                If memory usage reaches 100%, the container will be OOMKilled and the pod will restart.
+                
+                Steps to investigate:
+                1. Check current usage: kubectl top pods -n rag-chatbot
+                2. View memory trend: http://localhost:3001 (Grafana) → Backend Memory panel
+                3. Check for memory leaks: kubectl logs -n rag-chatbot -l app={{ $labels.pod_name }} | grep -i "gc\|memory"
+                4. Monitor over time: watch -n 5 'kubectl top pods -n rag-chatbot'
+                
+                Common causes:
+                - Application memory leak
+                - Memory limit set too low
+                - Large dataset loaded into memory
+                - Too many active sessions/connections
+                
+                Resolution: Restart pod (short term), investigate memory leak (long term), or increase limit if justified.
+
+          - alert: MongoDBDown
+            expr: kube_statefulset_status_replicas_ready{namespace="rag-chatbot",statefulset="mongodb"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              component: database
+            annotations:
+              summary: "MongoDB StatefulSet has no ready replicas"
+              description: |
+                MongoDB StatefulSet has 0 ready replicas and has been down for more than 1 minute.
+                
+                This is critical - the entire application depends on MongoDB for data storage.
+                All services will fail if MongoDB remains unavailable.
+                
+                Steps to investigate:
+                1. Check StatefulSet status: kubectl get statefulset mongodb -n rag-chatbot
+                2. Check pod status: kubectl get pods -n rag-chatbot -l app=mongodb
+                3. Describe pod for events: kubectl describe pod mongodb-0 -n rag-chatbot
+                4. Check logs: kubectl logs mongodb-0 -n rag-chatbot
+                5. Check previous logs if crashed: kubectl logs mongodb-0 --previous -n rag-chatbot
+                6. Verify PVC exists and is bound: kubectl get pvc -n rag-chatbot
+                7. Check disk space: kubectl exec mongodb-0 -n rag-chatbot -- df -h /data
+                
+                Common causes and fixes:
+                
+                A. Readiness Probe Timeout (MOST COMMON):
+                   - MongoDB is slow to start (takes >2 seconds to respond)
+                   - Fix: Increase probe timeout in StatefulSet
+                   kubectl edit statefulset mongodb -n rag-chatbot
+                   # Change readinessProbe.timeoutSeconds: 2 → 10
+                   # Change readinessProbe.initialDelaySeconds: 5 → 30
+                
+                B. PVC Not Bound:
+                   - Check: kubectl describe pvc mongodb-data -n rag-chatbot
+                   - Fix: kubectl apply -f k8s/mongodb/pvc.yaml
+                
+                C. Out of Storage:
+                   - Check: kubectl exec mongodb-0 -n rag-chatbot -- du -sh /data
+                   - Fix: Delete PVC and restart, or expand PVC size
+                
+                D. MongoDB Corrupted:
+                   - Full restart: kubectl delete pod mongodb-0 -n rag-chatbot --grace-period=0 --force
+                
+                E. Config Error:
+                   - Check logs for "replication configured but no replSetName"
+                   - Fix: Update k8s/mongodb/statefulset.yaml and reapply
+                
+                LAST RESORT (loses all data):
+                kubectl delete statefulset mongodb -n rag-chatbot
+                kubectl delete svc mongodb -n rag-chatbot
+                kubectl delete pvc mongodb-data -n rag-chatbot
+                sleep 30
+                kubectl apply -f k8s/mongodb/
