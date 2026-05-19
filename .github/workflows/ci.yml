@@ -86,7 +86,6 @@ jobs:
             chatbot-
 
       - name: Install dependencies
-        working-directory: chatbot
         run: pip install -r requirements.txt
 
       - name: Install flake8
