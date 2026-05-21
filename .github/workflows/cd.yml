@@ -3,6 +3,12 @@ name: CD - Build, Push & Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build and push images from'
+        required: false
+        default: 'devsecops'
 
 env:
   REGISTRY: docker.io
