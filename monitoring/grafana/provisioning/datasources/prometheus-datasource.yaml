@@ -15,7 +15,7 @@ datasources:
     user: ""
     database: ""
     basicAuth: false
-    isDefault: true
+    isDefault: false
     jsonData:
       timeInterval: 15s
       exemplarTraceIdDestinations:

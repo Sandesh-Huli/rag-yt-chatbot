@@ -2,7 +2,6 @@
 #  Docker Compose — RAG YouTube Chatbot
 #  Services: MongoDB, Backend, Chatbot, Frontend
 # ==============================================
-version: "3.8"
 
 services:
   # ---- MongoDB ----
@@ -44,6 +43,12 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS}
     ports:
       - "${BACKEND_PORT:-5000}:${BACKEND_PORT:-5000}"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       mongodb:
         condition: service_healthy
@@ -76,6 +81,12 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s    # ← give it 2 minutes to start
 
   # ---- Frontend (Vite React) ----
   frontend:
@@ -89,6 +100,12 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       - backend
       - chatbot
@@ -111,6 +128,12 @@ services:
       - prometheus_data:/prometheus
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       - backend
       - chatbot
@@ -132,6 +155,12 @@ services:
       - grafana_data:/var/lib/grafana
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       - prometheus
 
