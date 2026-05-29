@@ -1,0 +1,106 @@
+name: Rollback - Manual Service Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Which service to rollback (backend/chatbot/frontend/all)"
+        required: true
+        type: choice
+        default: backend
+        options:
+          - backend
+          - chatbot
+          - frontend
+          - all
+      image-tag:
+        description: "Specific image tag to roll back to (leave empty for previous version)"
+        required: false
+        type: string
+
+jobs:
+  rollback:
+    name: Execute Rollback
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > kubeconfig.yaml
+          echo "KUBECONFIG=$(pwd)/kubeconfig.yaml" >> $GITHUB_ENV
+
+      - name: Rollback to previous revision
+        if: ${{ !inputs.image-tag }}
+        run: |
+          if [ "${{ inputs.service }}" == "all" ]; then
+            echo "🔄 Rolling back all services to previous revision..."
+            kubectl rollout undo deployment/backend -n rag-chatbot
+            kubectl rollout undo deployment/chatbot -n rag-chatbot
+            kubectl rollout undo deployment/frontend -n rag-chatbot
+          else
+            echo "🔄 Rolling back ${{ inputs.service }} to previous revision..."
+            kubectl rollout undo deployment/${{ inputs.service }} -n rag-chatbot
+          fi
+
+      - name: Rollback to specific image tag
+        if: ${{ inputs.image-tag }}
+        run: |
+          if [ "${{ inputs.service }}" == "all" ]; then
+            echo "🔄 Rolling back all services to tag: ${{ inputs.image-tag }}"
+            kubectl set image deployment/backend \
+              backend=${{ secrets.DOCKER_USERNAME }}/rag-backend:${{ inputs.image-tag }} \
+              -n rag-chatbot
+            kubectl set image deployment/chatbot \
+              chatbot=${{ secrets.DOCKER_USERNAME }}/rag-chatbot:${{ inputs.image-tag }} \
+              -n rag-chatbot
+            kubectl set image deployment/frontend \
+              frontend=${{ secrets.DOCKER_USERNAME }}/rag-frontend:${{ inputs.image-tag }} \
+              -n rag-chatbot
+          else
+            echo "🔄 Rolling back ${{ inputs.service }} to tag: ${{ inputs.image-tag }}"
+            kubectl set image deployment/${{ inputs.service }} \
+              ${{ inputs.service }}=${{ secrets.DOCKER_USERNAME }}/rag-${{ inputs.service }}:${{ inputs.image-tag }} \
+              -n rag-chatbot
+          fi
+
+      - name: Verify backend rollout status
+        if: ${{ inputs.service == 'backend' || inputs.service == 'all' }}
+        run: kubectl rollout status deployment/backend -n rag-chatbot --timeout=60s
+
+      - name: Verify chatbot rollout status
+        if: ${{ inputs.service == 'chatbot' || inputs.service == 'all' }}
+        run: kubectl rollout status deployment/chatbot -n rag-chatbot --timeout=60s
+
+      - name: Verify frontend rollout status
+        if: ${{ inputs.service == 'frontend' || inputs.service == 'all' }}
+        run: kubectl rollout status deployment/frontend -n rag-chatbot --timeout=60s
+
+      - name: Display current backend image
+        if: ${{ inputs.service == 'backend' || inputs.service == 'all' }}
+        run: |
+          echo "Backend is now running:"
+          kubectl get deployment backend -n rag-chatbot \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+      - name: Display current chatbot image
+        if: ${{ inputs.service == 'chatbot' || inputs.service == 'all' }}
+        run: |
+          echo "Chatbot is now running:"
+          kubectl get deployment chatbot -n rag-chatbot \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+      - name: Display current frontend image
+        if: ${{ inputs.service == 'frontend' || inputs.service == 'all' }}
+        run: |
+          echo "Frontend is now running:"
+          kubectl get deployment frontend -n rag-chatbot \
+            -o jsonpath='{.spec.template.spec.containers[0].image}'
+
+      - name: Rollback complete
+        run: echo "✅ Rollback for ${{ inputs.service }} completed successfully"

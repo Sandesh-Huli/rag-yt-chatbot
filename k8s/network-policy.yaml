@@ -1,0 +1,300 @@
+---
+# NetworkPolicy: Default Deny All Ingress
+# Blocks all inbound traffic to the namespace by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# NetworkPolicy: Allow Frontend Traffic Only to Backend
+# Frontend pods can communicate with Backend on port 5000
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-to-backend
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from Frontend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: frontend
+      ports:
+        - protocol: TCP
+          port: 5000
+    # Allow from Prometheus for metrics scraping
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 5000
+
+---
+# NetworkPolicy: Allow Backend to Chatbot & MongoDB Egress
+# Backend can initiate connections to Chatbot and MongoDB
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-egress
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes:
+    - Egress
+  egress:
+    # Allow to Chatbot service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: chatbot
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow to MongoDB service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb
+      ports:
+        - protocol: TCP
+          port: 27017
+    # Allow DNS for external lookups
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow to external APIs (HTTPS)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# NetworkPolicy: Allow Chatbot Traffic Only from Backend
+# Chatbot pods accept traffic from Backend on port 8000
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-chatbot
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: chatbot
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from Backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow from Prometheus for metrics scraping
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 8000
+
+---
+# NetworkPolicy: Allow Chatbot to MongoDB & External APIs Egress
+# Chatbot can connect to MongoDB and external services
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-chatbot-egress
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: chatbot
+  policyTypes:
+    - Egress
+  egress:
+    # Allow to MongoDB service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mongodb
+      ports:
+        - protocol: TCP
+          port: 27017
+    # Allow DNS for external lookups
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow to external APIs (HTTPS for Gemini API)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+# NetworkPolicy: Allow MongoDB Traffic Only from Backend & Chatbot
+# MongoDB pods accept traffic only from Backend and Chatbot on port 27017
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-mongodb
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: mongodb
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow from Backend
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 27017
+    # Allow from Chatbot
+    - from:
+        - podSelector:
+            matchLabels:
+              app: chatbot
+      ports:
+        - protocol: TCP
+          port: 27017
+
+---
+# NetworkPolicy: Allow Frontend Egress to Backend Only
+# Frontend can only connect to Backend for API calls
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Egress
+  egress:
+    # Allow to Backend service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 5000
+    # Allow DNS for external lookups (if needed for CDNs)
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+---
+# NetworkPolicy: Allow Prometheus Scraping
+# Prometheus can scrape metrics from Backend and Chatbot
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scraping
+  namespace: rag-chatbot
+  labels:
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: network-security
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    # Allow to Backend metrics endpoint
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 5000
+    # Allow to Chatbot metrics endpoint
+    - to:
+        - podSelector:
+            matchLabels:
+              app: chatbot
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow to Prometheus self-metrics
+    - to:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow DNS for external lookups
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53

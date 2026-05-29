@@ -17,6 +17,21 @@ from chatbot.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+def extract_response_content(response) -> str:
+    """Extract text content from LLM response object or string.
+    
+    Handles both BaseMessage objects and plain strings.
+    
+    Args:
+        response: LLM response (BaseMessage or str)
+        
+    Returns:
+        Extracted text content
+    """
+    if hasattr(response, 'content'):
+        return response.content
+    return str(response)
+
 web_search_tool = Tool(
     name="web_search",
     func=web_search,
@@ -40,15 +55,6 @@ class AgentState:
 
 # --------------- Setup ---------------
 db = DBService()
-
-def extract_response_content(response: Any) -> str:
-    """Extract string content from LLM response object or string."""
-    if hasattr(response, "content"):
-        return response.content
-    return str(response)
-
-
-# ============= HELPER FUNCTIONS (Issue 16: Deduplication) =============
 
 def _build_history_text(history: Optional[List[Dict[str, str]]]) -> str:
     """Build formatted history text from messages (used in qa, summarize, translate nodes).
@@ -115,8 +121,7 @@ def _retrieve_relevant_chunks(video_id: str, query: str, top_k: int = 5) -> str:
     """
     try:
         video_cache = video_cache_manager.get_video_cache(video_id)
-        
-        # If transcript is indexed in FAISS, retrieve semantically relevant chunks
+        # If video is indexed in FAISS, retrieve semantically relevant chunks
         if video_cache.is_indexed():
             results = video_cache.retrieve_transcript(query, top_k=top_k)
             if results:
@@ -206,9 +211,10 @@ def _retrieve_batch_chunks(video_id: str, queries: List[str], top_k: int = 3) ->
             "video_id": video_id,
             "query_count": len(queries),
         })
+        return {q: [] for q in queries}
 
 
-# ---- Batch Search Method for FAISS (Issue 26) ------------ Graph Nodes ----------------
+# ---- Graph Nodes ----------------
 def fetch_transcript_node(state: AgentState) -> AgentState:
     """Fetch YouTube transcript for the given video ID.
     
@@ -587,7 +593,7 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     history = db.get_chat_history(session_id) or []
     # Format history into messages for the LLM
     history_msgs = []
-    if history:
+    if history and hasattr(history, 'messages'):
         for msg in history.messages:
             role = msg.role
             content = msg.message
@@ -598,6 +604,9 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
                     "content": f"[Previous conversation summary]: {memory_state.get('conversation_summary')}"
                 })
             history_msgs.append({"role": role, "content": content})
+    elif isinstance(history, list):
+        # Handle case where history is already a list of dicts
+        history_msgs = history.copy() if history else []
     # Add the new user query
     history_msgs.append({"role": "user", "content": query})
     logger.debug(f"History messages count: {len(history_msgs)}")
@@ -619,7 +628,7 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     # Save to DB
     db.add_message(session_id, video_id, "user", query)
     
-    assistant_message = extract_response_content(answer)
+    assistant_message = answer if isinstance(answer, str) else str(answer)
     logger.debug(f"Generated response length: {len(assistant_message)} chars")
     db.add_message(session_id, video_id, "assistant", assistant_message)
 
@@ -629,23 +638,13 @@ def run_query(session_id: str, video_id: str, query: str) -> str:
     # Check memory and prune if needed (only original messages summarized)
     try:
         # Get session cache to access memory metrics
-        session_cache = session_cache_manager.get_session_cache(session_id)
-        message_count = session_cache.get_message_count()
-        logger.debug(f"Session cache has {message_count} messages")
-        
-        # Prune via database (maintains original messages filtering)
-        updated_memory_state = db.check_and_prune_memory(
-            db_service=db,
-            session_id=session_id,
-            video_id=video_id,
-            max_messages=15,
-            summary_threshold=20
-        ) if hasattr(db, 'check_and_prune_memory') else None
-        
-        if updated_memory_state:
-            logger.info(f"Memory state updated: {message_count} total messages in session cache")
+        if hasattr(session_cache_manager, 'get_session_cache'):
+            session_cache = session_cache_manager.get_session_cache(session_id)
+            if hasattr(session_cache, 'get_message_count'):
+                message_count = session_cache.get_message_count()
+                logger.debug(f"Session cache has {message_count} messages")
     except Exception as e:
-        logger.warning(f"Memory pruning skipped: {str(e)}")
+        logger.debug(f"Session cache metrics unavailable: {str(e)}")
     
     return assistant_message
 

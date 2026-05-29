@@ -2,7 +2,6 @@
 Centralized configuration for YouTube Chatbot RAG pipeline.
 All environment variables and configuration values should be managed here.
 """
-
 import os
 from dotenv import load_dotenv
 from chatbot.logging_config import setup_structured_logging, get_logger

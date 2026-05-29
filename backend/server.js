@@ -2,6 +2,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import app from "./src/app.js";
 import { logger } from "./src/logging/structuredLogger.js";
+import client from 'prom-client';
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -26,10 +27,23 @@ if (missingVars.length > 0) {
 
 const PORT = process.env.PORT || 4000;
 
+// Collect default metrics (CPU, memory, event loop)
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ prefix: 'backend_' });
+
+// Expose metrics endpoint
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
+});
+
 app.listen(PORT, () => {
     logger.info('Environment variables validated successfully', {
         event_type: 'startup',
         port: PORT,
         fastapi_url: process.env.FASTAPI_URL,
+    });
+    logger.info('Prometheus metrics endpoint available at /metrics', {
+        event_type: 'metrics_enabled',
     });
 })

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from chatbot.services.db_service import DBService
 from chatbot.services.yt_agent_graph import run_query
 from pydantic import BaseModel, Field, field_validator
@@ -14,10 +15,37 @@ import uuid
 import logging
 import os
 import sys
+import time
+from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Prometheus metrics
+chatbot_queries_total = Counter(
+    'chatbot_queries_total',
+    'Total number of queries processed',
+    ['mode']  # mode: new_chat or resume_chat
+)
+
+chatbot_query_duration_seconds = Histogram(
+    'chatbot_query_duration_seconds',
+    'Query processing duration in seconds',
+    ['mode'],
+    buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+)
+
+chatbot_errors_total = Counter(
+    'chatbot_errors_total',
+    'Total number of errors',
+    ['error_type']
+)
+
+chatbot_active_sessions = Gauge(
+    'chatbot_active_sessions',
+    'Number of active chat sessions'
+)
 
 # Validate required environment variables
 required_env_vars = [
@@ -97,6 +125,20 @@ class ResumeChatRequest(BaseModel):
 
 app = FastAPI()
 
+# Health check endpoint for Docker/K8s probes
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container orchestration."""
+    return {"status": "healthy", "service": "chatbot"}
+
+@app.get("/metrics")
+async def metrics():
+    from fastapi.responses import Response
+    return Response(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST
+    )
+
 # Parse CORS origins from environment variable
 cors_origins_str = os.getenv('CORS_ORIGINS', 'http://localhost:5173,http://localhost:5174,http://localhost:5175')
 cors_origins = [origin.strip() for origin in cors_origins_str.split(',')]
@@ -118,7 +160,6 @@ logger.info(f'✅ CORS configured for origins: {cors_origins}')
 mongo_uri = os.getenv('MONGO_URI', '')
 mongo_safe = f"mongodb://{mongo_uri.split('://')[-1][:20]}..." if mongo_uri else 'Not set'
 logger.info(f'📊 Database connection: {mongo_safe}')
-
 @app.get("/chats/sessions")
 async def list_sessions(user_id: Optional[str] = None):
     try:
@@ -128,9 +169,11 @@ async def list_sessions(user_id: Optional[str] = None):
         logger.info(f"Listed {len(sessions)} sessions for user: {user_id}")
         return sessions
     except ValueError as e:
+        chatbot_errors_total.labels(error_type='validation_error').inc()
         logger.warning(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        chatbot_errors_total.labels(error_type='unknown_error').inc()
         logger.error(f"Error listing sessions: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -146,16 +189,19 @@ async def show_chats(session_id: str, user_id: Optional[str] = None):
         logger.info(f"Retrieved session: {session_id} for user: {user_id}")
         return session
     except ValueError as e:
+        chatbot_errors_total.labels(error_type='validation_error').inc()
         logger.warning(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
+        chatbot_errors_total.labels(error_type='unknown_error').inc()
         logger.error(f"Error getting session {session_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post('/chats/sessions/{session_id}')
 async def resume_chat(session_id: str, data: ResumeChatRequest):
+    start_time = time.time()
     try:
         validate_session_id(session_id)
         # Data is already validated by Pydantic model
@@ -168,35 +214,53 @@ async def resume_chat(session_id: str, data: ResumeChatRequest):
         
         response = run_query(session_id, data.video_id, data.query)
         logger.info(f"Response generated for session {session_id}")
+        
+        # Record metrics
+        duration = time.time() - start_time
+        chatbot_queries_total.labels(mode='resume_chat').inc()
+        chatbot_query_duration_seconds.labels(mode='resume_chat').observe(duration)
+        
         return {"response": response}
     except ValueError as e:
+        chatbot_errors_total.labels(error_type='validation_error').inc()
         logger.warning(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
+        chatbot_errors_total.labels(error_type='unknown_error').inc()
         logger.error(f"Error in resume_chat: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.post('/chats/sessions')
 async def new_chat(data: NewChatRequest):
+    start_time = time.time()
     try:
         session_id = str(uuid.uuid4())
         logger.info(f"New chat - Session: {session_id}, Video: {data.video_id[:11]}, User: {data.user_id}")
         
         # Always create session with user_id to ensure it's stored in DB (Issue: fix)
         db.create_session(video_id=data.video_id, session_id=session_id, user_id=data.user_id)
+        chatbot_active_sessions.set(len(db.list_sessions()))
         
         response = run_query(session_id, data.video_id, data.query)
         logger.info(f"Response generated for session {session_id}")
+        
+        # Record metrics
+        duration = time.time() - start_time
+        chatbot_queries_total.labels(mode='new_chat').inc()
+        chatbot_query_duration_seconds.labels(mode='new_chat').observe(duration)
+        
         return {
             "session_id": session_id,
             "response": response
         }
     except ValueError as e:
+        chatbot_errors_total.labels(error_type='validation_error').inc()
         logger.warning(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
+        chatbot_errors_total.labels(error_type='unknown_error').inc()
         logger.error(f"Error in new_chat: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -210,19 +274,27 @@ async def delete_chat(session_id: str, user_id: Optional[str] = None):
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Session not found or access denied")
         logger.info(f"Deleted session: {session_id} for user: {user_id}")
+        chatbot_active_sessions.set(len(db.list_sessions()))
         return {"message": "Session deleted"}
     except ValueError as e:
+        chatbot_errors_total.labels(error_type='validation_error').inc()
         logger.warning(f"Validation error: {str(e)}")
         raise HTTPException(status_code=422, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
+        chatbot_errors_total.labels(error_type='unknown_error').inc()
         logger.error(f"Error deleting session {session_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-    
-    
-    
-    
-    
+# Entry point for container execution
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info"
+    )

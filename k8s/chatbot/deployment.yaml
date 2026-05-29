@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot
+  namespace: rag-chatbot
+  labels:
+    app: chatbot
+    app.kubernetes.io/name: rag-chatbot
+    app.kubernetes.io/component: chatbot
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: chatbot
+  template:
+    metadata:
+      labels:
+        app: chatbot
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8000'
+        prometheus.io/path: '/metrics'
+    spec:
+      serviceAccountName: app-service-account
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: chatbot
+          image: chatbot:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: rag-store-volume
+              mountPath: /app/rag_store
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: CHATBOT_PORT
+            - name: BACKEND_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: BACKEND_URL
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: MONGO_URI
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: GOOGLE_API_KEY
+            - name: GOOGLE_SEARCH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: GOOGLE_SEARCH_KEY
+            - name: GOOGLE_CSE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: GOOGLE_CSE_ID
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: JWT_SECRET
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secrets
+                  key: SESSION_SECRET
+            - name: CORS_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: CORS_ORIGINS
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: rag-store-volume
+          persistentVolumeClaim:
+            claimName: rag-store-pvc

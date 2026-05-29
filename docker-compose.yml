@@ -1,0 +1,177 @@
+# ==============================================
+#  Docker Compose — RAG YouTube Chatbot
+#  Services: MongoDB, Backend, Chatbot, Frontend
+# ==============================================
+
+services:
+  # ---- MongoDB ----
+  mongodb:
+    image: mongo:6.0-jammy
+    container_name: rag-mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---- Backend (Node.js / Express) ----
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=${BACKEND_PORT:-5000}
+      - MONGO_URI=${MONGO_URI}
+      - FASTAPI_URL=${FASTAPI_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    ports:
+      - "${BACKEND_PORT:-5000}:${BACKEND_PORT:-5000}"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ---- Chatbot (Python / FastAPI) ----
+  chatbot:
+    build:
+      context: .
+      dockerfile: chatbot/Dockerfile
+    container_name: rag-chatbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PORT=${CHATBOT_PORT:-8000}
+      - MONGO_URI=${MONGO_URI}
+      - BACKEND_URL=${BACKEND_URL}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - GOOGLE_SEARCH_KEY=${GOOGLE_SEARCH_KEY}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID}
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    ports:
+      - "${CHATBOT_PORT:-8000}:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s    # ← give it 2 minutes to start
+
+  # ---- Frontend (Vite React) ----
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_BACKEND_URI: "http://localhost:8000"
+        VITE_AUTH_BACKEND_URI: "http://localhost:5000"
+    container_name: rag-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      - backend
+      - chatbot
+    networks:
+      - app-network
+
+  # ---- Prometheus ----
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: rag-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      - backend
+      - chatbot
+
+  # ---- Grafana ----
+  grafana:
+    image: grafana/grafana:10.3.0
+    container_name: rag-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      - prometheus
+
+volumes:
+  mongodb_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

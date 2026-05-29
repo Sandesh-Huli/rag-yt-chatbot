@@ -7,7 +7,6 @@ Features:
 - Audit logging for security events
 - Thread-safe logging with context tracking
 """
-
 import logging
 import json
 import os
@@ -15,7 +14,6 @@ import re
 from datetime import datetime
 from typing import Any, Dict, Optional
 import inspect
-
 
 class StructuredFormatter(logging.Formatter):
     """JSON formatter for structured logging output (Issue 40)."""

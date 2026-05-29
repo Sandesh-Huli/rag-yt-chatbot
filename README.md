@@ -185,3 +185,6 @@ Bot: This video discusses...
 - [LangGraph](https://github.com/langchain-ai/langgraph)
 - [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api)
 - [Google Generative AI (Gemini)](https://ai.google.dev/)
+
+
+##new addition
